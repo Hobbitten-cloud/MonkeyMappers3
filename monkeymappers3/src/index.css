@@ -1,0 +1,20 @@
+/* src/index.css */
+body, table, tr, td, th, div, span, label, h1, h2, h3, h4, h5, h6, p, .card {
+  cursor: default !important;
+}
+
+/* Ensure inputs and textareas still let you type normally */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+textarea {
+  cursor: text !important;
+}
+
+/* Ensure buttons and links show the clicking hand cursor */
+button,
+a,
+.btn,
+.nav-link {
+  cursor: pointer !important;
+}
