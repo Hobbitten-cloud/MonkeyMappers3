@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import type { MapperTask, MapItem, MapLocation, MapChangelog } from '../types';
+import type { MapperTask, MapItem, ItemAbility, MapLocation, MapChangelog } from '../types';
 
 export const Admin: React.FC = () => {
     const [session, setSession] = useState<any>(null);
@@ -21,7 +21,12 @@ export const Admin: React.FC = () => {
     const [itemName, setItemName] = useState('');
     const [itemType, setItemType] = useState<'Human' | 'Zombie'>('Human');
     const [itemDesc, setItemDesc] = useState('');
+    const [itemActivationDelay, setItemActivationDelay] = useState<number>(0);
+    const [itemDuration, setItemDuration] = useState<number>(0);
     const [itemCooldown, setItemCooldown] = useState<number>(0);
+    const [itemAbilities, setItemAbilities] = useState<ItemAbility[]>([]);
+    const [itemImageUrl, setItemImageUrl] = useState('');
+    const [itemFile, setItemFile] = useState<File | null>(null);
 
     // Locations state
     const [locations, setLocations] = useState<MapLocation[]>([]);
@@ -36,7 +41,6 @@ export const Admin: React.FC = () => {
     const [changelogs, setChangelogs] = useState<MapChangelog[]>([]);
     const [editingLogId, setEditingLogId] = useState<number | null>(null);
     const [logVersion, setLogVersion] = useState('');
-    const [logTitle, setLogTitle] = useState('');
     const [logChanges, setLogChanges] = useState('');
     const [logStatus, setLogStatus] = useState<'In Progress' | 'Released' | 'Internal Testing' | 'Planned'>('Released');
 
@@ -81,7 +85,7 @@ export const Admin: React.FC = () => {
         if (error) alert(error.message);
     };
 
-    // Mapper Save & Delete
+    // Mapper Handlers
     const handleSaveMapper = async (e: React.FormEvent) => {
         e.preventDefault();
         if (editingMapperId !== null) {
@@ -100,15 +104,72 @@ export const Admin: React.FC = () => {
         }
     };
 
+    // Ability Handlers for Items
+    const handleAddAbility = () => {
+        setItemAbilities([...itemAbilities, { name: '', description: '', activation_delay: 0, duration: 0, cooldown: 0 }]);
+    };
+
+    const handleUpdateAbility = (index: number, field: keyof ItemAbility, value: any) => {
+        const updated = [...itemAbilities];
+        updated[index] = { ...updated[index], [field]: value };
+        setItemAbilities(updated);
+    };
+
+    const handleRemoveAbility = (index: number) => {
+        setItemAbilities(itemAbilities.filter((_, i) => i !== index));
+    };
+
     // Item Save & Delete
     const handleSaveItem = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (editingItemId !== null) {
-            await supabase.from('map_items').update({ name: itemName, type: itemType, description: itemDesc, cooldown: itemCooldown }).eq('id', editingItemId);
-        } else {
-            await supabase.from('map_items').insert([{ name: itemName, type: itemType, description: itemDesc, cooldown: itemCooldown }]);
+        setUploading(true);
+
+        let finalUrl = itemImageUrl;
+
+        if (itemFile) {
+            const fileExt = itemFile.name.split('.').pop();
+            const fileName = `${Date.now()}.${fileExt}`;
+            const { error: uploadError } = await supabase.storage
+                .from('item-images')
+                .upload(fileName, itemFile);
+
+            if (uploadError) {
+                alert(`Upload failed: ${uploadError.message}`);
+                setUploading(false);
+                return;
+            }
+
+            const { data } = supabase.storage.from('item-images').getPublicUrl(fileName);
+            finalUrl = data.publicUrl;
         }
-        setEditingItemId(null); setItemName(''); setItemDesc(''); setItemCooldown(0);
+
+        const payload = {
+            name: itemName,
+            type: itemType,
+            description: itemDesc,
+            activation_delay: itemActivationDelay,
+            duration: itemDuration,
+            cooldown: itemCooldown,
+            abilities: itemAbilities,
+            image_url: finalUrl
+        };
+
+        if (editingItemId !== null) {
+            await supabase.from('map_items').update(payload).eq('id', editingItemId);
+        } else {
+            await supabase.from('map_items').insert([payload]);
+        }
+
+        setEditingItemId(null);
+        setItemName('');
+        setItemDesc('');
+        setItemActivationDelay(0);
+        setItemDuration(0);
+        setItemCooldown(0);
+        setItemAbilities([]);
+        setItemImageUrl('');
+        setItemFile(null);
+        setUploading(false);
         fetchItems();
     };
 
@@ -119,7 +180,7 @@ export const Admin: React.FC = () => {
         }
     };
 
-    // Location Save & Upload & Delete
+    // Location Handlers
     const handleSaveLocation = async (e: React.FormEvent) => {
         e.preventDefault();
         setUploading(true);
@@ -175,25 +236,23 @@ export const Admin: React.FC = () => {
         }
     };
 
-    // Changelog Save & Delete
+    // Changelog Handlers
     const handleSaveChangelog = async (e: React.FormEvent) => {
         e.preventDefault();
         if (editingLogId !== null) {
             await supabase.from('map_changelogs').update({
                 version: logVersion,
-                title: logTitle,
                 changes: logChanges,
                 status: logStatus
             }).eq('id', editingLogId);
         } else {
             await supabase.from('map_changelogs').insert([{
                 version: logVersion,
-                title: logTitle,
                 changes: logChanges,
                 status: logStatus
             }]);
         }
-        setEditingLogId(null); setLogVersion(''); setLogTitle(''); setLogChanges(''); setLogStatus('Released');
+        setEditingLogId(null); setLogVersion(''); setLogChanges(''); setLogStatus('Released');
         fetchChangelogs();
     };
 
@@ -322,32 +381,107 @@ export const Admin: React.FC = () => {
                                     </select>
                                 </div>
                                 <div className="mb-3">
-                                    <label className="form-label small text-warning fw-semibold">Description / How it works</label>
-                                    <textarea className="form-control bg-dark text-warning border-0" placeholder="Description / How it works" value={itemDesc} onChange={(e) => setItemDesc(e.target.value)} rows={3} required />
+                                    <label className="form-label small text-warning fw-semibold">Primary Description</label>
+                                    <textarea className="form-control bg-dark text-warning border-0" placeholder="Main overview..." value={itemDesc} onChange={(e) => setItemDesc(e.target.value)} rows={2} required />
+                                </div>
+
+                                {/* Base Timings */}
+                                <div className="row g-2 mb-3">
+                                    <div className="col-md-4">
+                                        <label className="form-label small text-warning fw-semibold">Delay (s)</label>
+                                        <input type="number" className="form-control bg-dark text-warning border-0" value={itemActivationDelay} onChange={(e) => setItemActivationDelay(Number(e.target.value))} required />
+                                    </div>
+                                    <div className="col-md-4">
+                                        <label className="form-label small text-warning fw-semibold">Duration (s)</label>
+                                        <input type="number" className="form-control bg-dark text-warning border-0" value={itemDuration} onChange={(e) => setItemDuration(Number(e.target.value))} required />
+                                    </div>
+                                    <div className="col-md-4">
+                                        <label className="form-label small text-warning fw-semibold">Cooldown (s)</label>
+                                        <input type="number" className="form-control bg-dark text-warning border-0" value={itemCooldown} onChange={(e) => setItemCooldown(Number(e.target.value))} required />
+                                    </div>
+                                </div>
+
+                                {/* Dynamic Multiple Abilities Section */}
+                                <div className="mb-3 border-top border-secondary border-opacity-25 pt-3">
+                                    <div className="d-flex justify-content-between align-items-center mb-2">
+                                        <label className="form-label small text-warning fw-bold mb-0">Extra Abilities ({itemAbilities.length})</label>
+                                        <button type="button" className="btn btn-sm btn-outline-warning" onClick={handleAddAbility}>
+                                            + Add Ability
+                                        </button>
+                                    </div>
+                                    {itemAbilities.map((ab, idx) => (
+                                        <div key={idx} className="bg-dark p-3 rounded-3 mb-2 border border-secondary border-opacity-25">
+                                            <div className="d-flex justify-content-between mb-2">
+                                                <small className="text-warning fw-bold">Ability #{idx + 1}</small>
+                                                <button type="button" className="btn-close btn-close-white btn-sm" onClick={() => handleRemoveAbility(idx)}></button>
+                                            </div>
+                                            <input type="text" className="form-control form-control-sm bg-black text-warning border-0 mb-2" placeholder="Ability Name" value={ab.name} onChange={(e) => handleUpdateAbility(idx, 'name', e.target.value)} required />
+                                            <textarea className="form-control form-control-sm bg-black text-warning border-0 mb-2" placeholder="Ability Details" value={ab.description} onChange={(e) => handleUpdateAbility(idx, 'description', e.target.value)} rows={2} required />
+                                            <div className="row g-2">
+                                                <div className="col-4">
+                                                    <input type="number" className="form-control form-control-sm bg-black text-warning border-0" placeholder="Delay" value={ab.activation_delay} onChange={(e) => handleUpdateAbility(idx, 'activation_delay', Number(e.target.value))} />
+                                                </div>
+                                                <div className="col-4">
+                                                    <input type="number" className="form-control form-control-sm bg-black text-warning border-0" placeholder="Duration" value={ab.duration} onChange={(e) => handleUpdateAbility(idx, 'duration', Number(e.target.value))} />
+                                                </div>
+                                                <div className="col-4">
+                                                    <input type="number" className="form-control form-control-sm bg-black text-warning border-0" placeholder="Cooldown" value={ab.cooldown} onChange={(e) => handleUpdateAbility(idx, 'cooldown', Number(e.target.value))} required />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="mb-3">
+                                    <label className="form-label small text-warning fw-semibold">Upload Image File</label>
+                                    <input type="file" accept="image/*" className="form-control bg-dark text-warning border-0" onChange={(e) => setItemFile(e.target.files ? e.target.files[0] : null)} />
                                 </div>
                                 <div className="mb-3">
-                                    <label className="form-label small text-warning fw-semibold">Cooldown in Seconds</label>
-                                    <input type="number" className="form-control bg-dark text-warning border-0" placeholder="Cooldown in seconds" value={itemCooldown} onChange={(e) => setItemCooldown(Number(e.target.value))} required />
+                                    <label className="form-label small text-warning fw-semibold">OR Image URL</label>
+                                    <input type="url" className="form-control bg-dark text-warning border-0" placeholder="https://..." value={itemImageUrl} onChange={(e) => setItemImageUrl(e.target.value)} />
                                 </div>
-                                <button type="submit" className="btn btn-warning w-100 fw-bold">Save Map Item</button>
+
+                                <button type="submit" className="btn btn-warning w-100 fw-bold" disabled={uploading}>
+                                    {uploading ? 'Uploading...' : 'Save Map Item'}
+                                </button>
                             </form>
                         </div>
                     </div>
                     <div className="col-lg-7">
                         <div className="card bg-black border-0 shadow-lg p-4 rounded-4">
                             <h5 className="text-warning fw-bold mb-3">Map Items</h5>
-                            <div className="table-responsive" style={{ maxHeight: '450px', overflowY: 'auto' }}>
-                                <table className="table table-dark table-hover mb-0">
+                            <div className="table-responsive" style={{ maxHeight: '550px', overflowY: 'auto' }}>
+                                <table className="table table-dark table-hover align-middle mb-0">
                                     <tbody>
                                         {items.map((item) => (
                                             <tr key={item.id}>
-                                                <td>
-                                                    <strong className="text-white">{item.name}</strong>
-                                                    <span className={`badge ms-2 ${item.type === 'Human' ? 'bg-primary' : 'bg-danger'}`}>{item.type}</span>
+                                                {item.image_url && (
+                                                    <td style={{ width: '60px' }}>
+                                                        <img src={item.image_url} alt={item.name} className="rounded" style={{ width: '50px', height: '35px', objectFit: 'contain' }} />
+                                                    </td>
+                                                )}
+                                                <td colSpan={item.image_url ? 1 : 2}>
+                                                    <div className="d-flex align-items-center gap-2 mb-1">
+                                                        <strong className="text-white">{item.name}</strong>
+                                                        <span className={`badge ${item.type === 'Human' ? 'bg-primary' : 'bg-danger'}`}>{item.type}</span>
+                                                        {item.abilities && item.abilities.length > 0 && (
+                                                            <span className="badge bg-secondary">{item.abilities.length} Sub-Abilities</span>
+                                                        )}
+                                                    </div>
                                                     <p className="small text-white-50 mb-0">{item.description}</p>
                                                 </td>
                                                 <td className="text-end">
-                                                    <button className="btn btn-sm btn-outline-warning border-0 me-1" onClick={() => { setEditingItemId(item.id); setItemName(item.name); setItemType(item.type); setItemDesc(item.description); setItemCooldown(item.cooldown); }}>Edit</button>
+                                                    <button className="btn btn-sm btn-outline-warning border-0 me-1" onClick={() => {
+                                                        setEditingItemId(item.id);
+                                                        setItemName(item.name);
+                                                        setItemType(item.type);
+                                                        setItemDesc(item.description);
+                                                        setItemActivationDelay(item.activation_delay || 0);
+                                                        setItemDuration(item.duration || 0);
+                                                        setItemCooldown(item.cooldown);
+                                                        setItemAbilities(item.abilities || []);
+                                                        setItemImageUrl(item.image_url || '');
+                                                    }}>Edit</button>
                                                     <button className="btn btn-sm btn-outline-danger border-0" onClick={() => handleDeleteItem(item.id)}>Delete</button>
                                                 </td>
                                             </tr>
@@ -375,28 +509,14 @@ export const Admin: React.FC = () => {
                                     <label className="form-label small text-warning fw-semibold">Description / Hold Details</label>
                                     <textarea className="form-control bg-dark text-warning border-0" placeholder="Description / Hold details" value={locationDesc} onChange={(e) => setLocationDesc(e.target.value)} rows={3} required />
                                 </div>
-
                                 <div className="mb-3">
                                     <label className="form-label small text-warning fw-semibold">Upload Image File</label>
-                                    <input
-                                        type="file"
-                                        accept="image/*"
-                                        className="form-control bg-dark text-warning border-0"
-                                        onChange={(e) => setSelectedFile(e.target.files ? e.target.files[0] : null)}
-                                    />
+                                    <input type="file" accept="image/*" className="form-control bg-dark text-warning border-0" onChange={(e) => setSelectedFile(e.target.files ? e.target.files[0] : null)} />
                                 </div>
-
                                 <div className="mb-3">
                                     <label className="form-label small text-warning fw-semibold">OR Image URL</label>
-                                    <input
-                                        type="url"
-                                        className="form-control bg-dark text-warning border-0"
-                                        placeholder="https://..."
-                                        value={locationImageUrl}
-                                        onChange={(e) => setLocationImageUrl(e.target.value)}
-                                    />
+                                    <input type="url" className="form-control bg-dark text-warning border-0" placeholder="https://..." value={locationImageUrl} onChange={(e) => setLocationImageUrl(e.target.value)} />
                                 </div>
-
                                 <button type="submit" className="btn btn-warning w-100 fw-bold" disabled={uploading}>
                                     {uploading ? 'Uploading...' : 'Save Location'}
                                 </button>
@@ -440,25 +560,17 @@ export const Admin: React.FC = () => {
                             <h5 className="text-warning fw-bold mb-3">{editingLogId ? 'Edit Changelog' : 'Add Changelog'}</h5>
                             <form onSubmit={handleSaveChangelog}>
                                 <div className="mb-3">
-                                    <label className="form-label small text-warning fw-semibold">Version Tag</label>
+                                    <label className="form-label small text-warning fw-semibold">Version Tag / Title</label>
                                     <input type="text" className="form-control bg-dark text-warning border-0" placeholder="e.g. v1.2.0 or b1" value={logVersion} onChange={(e) => setLogVersion(e.target.value)} required />
                                 </div>
                                 <div className="mb-3">
                                     <label className="form-label small text-warning fw-semibold">Development Status / Flag</label>
-                                    <select
-                                        className="form-select bg-dark text-warning border-0"
-                                        value={logStatus}
-                                        onChange={(e) => setLogStatus(e.target.value as any)}
-                                    >
+                                    <select className="form-select bg-dark text-warning border-0" value={logStatus} onChange={(e) => setLogStatus(e.target.value as any)}>
                                         <option value="Released">Released</option>
                                         <option value="In Progress">In Progress</option>
                                         <option value="Internal Testing">Internal Testing</option>
                                         <option value="Planned">Planned</option>
                                     </select>
-                                </div>
-                                <div className="mb-3">
-                                    <label className="form-label small text-warning fw-semibold">Title</label>
-                                    <input type="text" className="form-control bg-dark text-warning border-0" placeholder="e.g. Stage 3 Release & Boss Balance" value={logTitle} onChange={(e) => setLogTitle(e.target.value)} required />
                                 </div>
                                 <div className="mb-3">
                                     <label className="form-label small text-warning fw-semibold">Patch Notes / Changes</label>
@@ -471,27 +583,22 @@ export const Admin: React.FC = () => {
                     <div className="col-lg-7">
                         <div className="card bg-black border-0 shadow-lg p-4 rounded-4">
                             <h5 className="text-warning fw-bold mb-3">Published Changelogs</h5>
-                            <div className="table-responsive" style={{ maxHeight: '450px', overflowY: 'auto' }}>
-                                <table className="table table-dark table-hover align-middle mb-0">
-                                    <tbody>
-                                        {changelogs.map((log) => (
-                                            <tr key={log.id}>
-                                                <td>
-                                                    <div className="d-flex align-items-center gap-2 mb-1">
-                                                        <span className="badge bg-warning text-dark">{log.version}</span>
-                                                        <span className={`badge ${getStatusBadge(log.status)}`}>{log.status || 'Released'}</span>
-                                                    </div>
-                                                    <strong className="text-white">{log.title}</strong>
-                                                    <p className="small text-white-50 mb-0 text-truncate">{log.changes}</p>
-                                                </td>
-                                                <td className="text-end">
-                                                    <button className="btn btn-sm btn-outline-warning border-0 me-1" onClick={() => { setEditingLogId(log.id); setLogVersion(log.version); setLogTitle(log.title); setLogChanges(log.changes); setLogStatus(log.status || 'Released'); }}>Edit</button>
-                                                    <button className="btn btn-sm btn-outline-danger border-0" onClick={() => handleDeleteChangelog(log.id)}>Delete</button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                            <div className="d-flex flex-column gap-2" style={{ maxHeight: '450px', overflowY: 'auto' }}>
+                                {changelogs.map((log) => (
+                                    <div key={log.id} className="bg-dark p-3 rounded-3 border border-secondary border-opacity-10 d-flex justify-content-between align-items-start gap-3">
+                                        <div className="overflow-hidden" style={{ minWidth: 0 }}>
+                                            <div className="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                                                <strong className="text-warning">{log.version}</strong>
+                                                <span className={`badge ${getStatusBadge(log.status)}`}>{log.status || 'Released'}</span>
+                                            </div>
+                                            <p className="small text-white-50 mb-0 text-truncate" style={{ maxWidth: '100%' }}>{log.changes}</p>
+                                        </div>
+                                        <div className="d-flex gap-1 flex-shrink-0">
+                                            <button className="btn btn-sm btn-outline-warning border-0" onClick={() => { setEditingLogId(log.id); setLogVersion(log.version); setLogChanges(log.changes); setLogStatus(log.status || 'Released'); }}>Edit</button>
+                                            <button className="btn btn-sm btn-outline-danger border-0" onClick={() => handleDeleteChangelog(log.id)}>Delete</button>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     </div>

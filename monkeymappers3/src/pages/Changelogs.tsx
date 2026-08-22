@@ -22,6 +22,15 @@ export const Changelogs: React.FC = () => {
         fetchChangelogs();
     }, []);
 
+    const getStatusBadge = (status: string) => {
+        switch (status) {
+            case 'In Progress': return 'bg-warning text-dark';
+            case 'Internal Testing': return 'bg-info text-dark';
+            case 'Planned': return 'bg-secondary text-white';
+            default: return 'bg-success text-white';
+        }
+    };
+
     return (
         <div className="container py-2" style={{ maxWidth: '1000px' }}>
             {/* Header Banner */}
@@ -50,10 +59,10 @@ export const Changelogs: React.FC = () => {
                         >
                             <div className="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
                                 <div className="d-flex align-items-center gap-2">
-                                    <span className="badge bg-warning text-dark fw-bold px-3 py-2 fs-6">
-                                        {log.version}
+                                    <h4 className="text-warning fw-bold mb-0">{log.version}</h4>
+                                    <span className={`badge ${getStatusBadge(log.status)} fw-bold px-2 py-1`}>
+                                        {log.status || 'Released'}
                                     </span>
-                                    <h4 className="text-white fw-bold mb-0">{log.title}</h4>
                                 </div>
                                 <small className="text-white-50">
                                     {log.release_date ? new Date(log.release_date).toLocaleDateString() : ''}
@@ -79,10 +88,10 @@ export const Changelogs: React.FC = () => {
                         <div className="modal-content bg-black text-white border-0 shadow-lg rounded-4 p-4">
                             <div className="d-flex justify-content-between align-items-center mb-3">
                                 <div className="d-flex align-items-center gap-2">
-                                    <span className="badge bg-warning text-dark fw-bold fs-5 px-3 py-2">
-                                        {selectedLog.version}
+                                    <h3 className="text-warning fw-bold mb-0">{selectedLog.version}</h3>
+                                    <span className={`badge ${getStatusBadge(selectedLog.status)} fs-6 px-3 py-2`}>
+                                        {selectedLog.status || 'Released'}
                                     </span>
-                                    <h3 className="text-warning fw-bold mb-0">{selectedLog.title}</h3>
                                 </div>
                                 <button
                                     type="button"
@@ -92,11 +101,11 @@ export const Changelogs: React.FC = () => {
                             </div>
 
                             <small className="text-white-50 d-block mb-3">
-                                Released on: {selectedLog.release_date ? new Date(selectedLog.release_date).toLocaleString() : 'N/A'}
+                                Published: {selectedLog.release_date ? new Date(selectedLog.release_date).toLocaleString() : 'N/A'}
                             </small>
 
                             <div className="bg-dark p-4 rounded-3 mb-4 border border-secondary border-opacity-10">
-                                <h6 className="text-warning fw-bold mb-3">Changes & Modifications</h6>
+                                <h6 className="text-warning fw-bold mb-3">Patch Details & Modifications</h6>
                                 <div className="text-light lh-lg" style={{ whiteSpace: 'pre-line' }}>
                                     {selectedLog.changes}
                                 </div>

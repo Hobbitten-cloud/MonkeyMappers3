@@ -31,60 +31,88 @@ export const MapStats: React.FC = () => {
 
     useEffect(() => {
         async function fetchTelemetry() {
-            setLoading(true);
+            try {
+                // 1. Fetch exact row counts
+                const [{ count: attempts }, { count: wins }, { count: fails }] = await Promise.all([
+                    supabase.from('map_attempts').select('*', { count: 'exact', head: true }),
+                    supabase.from('maps_wins').select('*', { count: 'exact', head: true }),
+                    supabase.from('map_fails').select('*', { count: 'exact', head: true }),
+                ]);
 
-            // Fetch row counts
-            const [{ count: attempts }, { count: wins }, { count: fails }] = await Promise.all([
-                supabase.from('map_attempts').select('*', { count: 'exact', head: true }),
-                supabase.from('maps_wins').select('*', { count: 'exact', head: true }),
-                supabase.from('map_fails').select('*', { count: 'exact', head: true }),
-            ]);
+                setTotals({
+                    attempts: attempts || 0,
+                    wins: wins || 0,
+                    fails: fails || 0,
+                });
 
-            setTotals({
-                attempts: attempts || 0,
-                wins: wins || 0,
-                fails: fails || 0,
-            });
+                // 2. Fetch recent stage victories
+                const { data: stageData } = await supabase
+                    .from('stages_wins')
+                    .select('*')
+                    .order('timestamp', { ascending: false })
+                    .limit(6);
 
-            // Fetch recent stage victories
-            const { data: stageData } = await supabase
-                .from('stages_wins')
-                .select('*')
-                .order('timestamp', { ascending: false })
-                .limit(5);
+                if (stageData) setRecentStageWins(stageData as StageWin[]);
 
-            if (stageData) setRecentStageWins(stageData as StageWin[]);
+                // 3. Fetch players and sort in-memory by stats->wins
+                const { data: playerData } = await supabase
+                    .from('players')
+                    .select('*')
+                    .limit(50);
 
-            // Fetch leaderboard
-            const { data: playerData } = await supabase
-                .from('players')
-                .select('*')
-                .limit(8);
+                if (playerData) {
+                    const sorted = (playerData as Player[]).sort((a, b) => {
+                        const winsA = Number(a.stats?.wins || 0);
+                        const winsB = Number(b.stats?.wins || 0);
+                        if (winsB !== winsA) return winsB - winsA;
 
-            if (playerData) {
-                const sorted = (playerData as Player[]).sort(
-                    (a, b) => (b.stats?.wins || 0) - (a.stats?.wins || 0)
-                );
-                setTopPlayers(sorted);
+                        const killsA = Number(a.stats?.kills || 0);
+                        const killsB = Number(b.stats?.kills || 0);
+                        return killsB - killsA;
+                    }).slice(0, 8);
+
+                    setTopPlayers(sorted);
+                }
+            } catch (err) {
+                console.error('Error fetching map telemetry:', err);
+            } finally {
+                setLoading(false);
             }
-
-            setLoading(false);
         }
 
         fetchTelemetry();
+
+        // Auto-refresh telemetry every 15 seconds
+        const interval = setInterval(fetchTelemetry, 15000);
+        return () => clearInterval(interval);
     }, []);
+
+    const formatPlaytime = (seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}m ${secs}s`;
+    };
+
+    const winRate = totals.attempts > 0
+        ? ((totals.wins / totals.attempts) * 100).toFixed(1)
+        : '0.0';
 
     return (
         <div className="container py-2" style={{ maxWidth: '1000px' }}>
             {/* Header Banner */}
             <div className="card bg-black bg-gradient border-0 shadow-lg p-4 rounded-4 mb-4">
-                <div>
-                    <h2 className="text-warning fw-bold mb-1">ze_monkey_mappers3</h2>
-                    <p className="text-white-50 mb-0 small">Live map stats</p>
+                <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div>
+                        <h2 className="text-warning fw-bold mb-1">ze_monkey_mappers3</h2>
+                        <p className="text-white-50 mb-0 small">Live map telemetry & player statistics</p>
+                    </div>
+                    <span className="badge bg-dark border border-warning text-warning px-3 py-2 rounded-pill small">
+                        Win Rate: {winRate}%
+                    </span>
                 </div>
 
                 {/* High-Level Stat Cards */}
-                <div className="row g-3 mt-3">
+                <div className="row g-3 mt-2">
                     <div className="col-md-4">
                         <div className="bg-dark p-3 rounded-3 border border-secondary border-opacity-25 text-center">
                             <span className="text-uppercase small text-white-50 fw-semibold">Total Runs Started</span>
@@ -123,14 +151,14 @@ export const MapStats: React.FC = () => {
                             ) : (
                                 <div className="d-flex flex-column gap-2">
                                     {recentStageWins.map((s) => (
-                                        <div key={s.id} className="bg-dark p-3 rounded-3 border border-secondary border-opacity-10 d-flex justify-content-between align-items-center">
-                                            <div>
-                                                <div className="fw-bold text-white mb-1">{s.stage_won}</div>
+                                        <div key={s.id} className="bg-dark p-3 rounded-3 border border-secondary border-opacity-10 d-flex justify-content-between align-items-center gap-2">
+                                            <div className="overflow-hidden">
+                                                <div className="fw-bold text-white mb-1 text-truncate">{s.stage_won}</div>
                                                 <small className="text-white-50">
-                                                    Playtime: <strong className="text-light">{Math.floor(s.stage_playtime / 60)}m {s.stage_playtime % 60}s</strong>
+                                                    Playtime: <strong className="text-light">{formatPlaytime(s.stage_playtime)}</strong>
                                                 </small>
                                             </div>
-                                            <div className="text-end">
+                                            <div className="text-end flex-shrink-0">
                                                 <span className="badge bg-success text-dark fw-bold mb-1 d-block">
                                                     {s.humans_count} CTs Survived
                                                 </span>
@@ -147,10 +175,10 @@ export const MapStats: React.FC = () => {
                     <div className="col-lg-6">
                         <div className="card bg-black bg-gradient border-0 shadow-lg p-4 rounded-4 h-100">
                             <h5 className="text-warning fw-bold mb-3 d-flex align-items-center gap-2">
-                                <span>🥇</span> Top Mappers / Players
+                                <span>🥇</span> Leaderboard
                             </h5>
                             {topPlayers.length === 0 ? (
-                                <div className="text-white-50 text-center py-4 small">No registered player stats recorded yet.</div>
+                                <div className="text-white-50 text-center py-4 small">No player statistics recorded yet.</div>
                             ) : (
                                 <div className="table-responsive">
                                     <table className="table table-dark table-hover align-middle mb-0">
@@ -167,6 +195,8 @@ export const MapStats: React.FC = () => {
                                                     <td className="py-2 px-3">
                                                         <div className="fw-bold text-white">
                                                             {index === 0 && '👑 '}
+                                                            {index === 1 && '🥈 '}
+                                                            {index === 2 && '🥉 '}
                                                             {p.name}
                                                         </div>
                                                         <code className="text-warning small">{p.steamid}</code>
