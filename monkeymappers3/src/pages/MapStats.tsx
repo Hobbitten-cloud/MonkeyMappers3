@@ -29,62 +29,92 @@ export const MapStats: React.FC = () => {
     const [recentStageWins, setRecentStageWins] = useState<StageWin[]>([]);
     const [topPlayers, setTopPlayers] = useState<Player[]>([]);
 
-    useEffect(() => {
-        async function fetchTelemetry() {
-            try {
-                // 1. Fetch exact row counts
-                const [{ count: attempts }, { count: wins }, { count: fails }] = await Promise.all([
-                    supabase.from('map_attempts').select('*', { count: 'exact', head: true }),
-                    supabase.from('maps_wins').select('*', { count: 'exact', head: true }),
-                    supabase.from('map_fails').select('*', { count: 'exact', head: true }),
-                ]);
+    const fetchTelemetry = async () => {
+        try {
+            // 1. Fetch exact row counts
+            const [{ count: attempts }, { count: wins }, { count: fails }] = await Promise.all([
+                supabase.from('map_attempts').select('*', { count: 'exact', head: true }),
+                supabase.from('map_wins').select('*', { count: 'exact', head: true }),
+                supabase.from('map_fails').select('*', { count: 'exact', head: true }),
+            ]);
 
-                setTotals({
-                    attempts: attempts || 0,
-                    wins: wins || 0,
-                    fails: fails || 0,
-                });
+            setTotals({
+                attempts: attempts || 0,
+                wins: wins || 0,
+                fails: fails || 0,
+            });
 
-                // 2. Fetch recent stage victories
-                const { data: stageData } = await supabase
-                    .from('stages_wins')
-                    .select('*')
-                    .order('timestamp', { ascending: false })
-                    .limit(6);
+            // 2. Fetch recent stage victories
+            const { data: stageData } = await supabase
+                .from('stages_wins')
+                .select('*')
+                .order('timestamp', { ascending: false })
+                .limit(6);
 
-                if (stageData) setRecentStageWins(stageData as StageWin[]);
+            if (stageData) setRecentStageWins(stageData as StageWin[]);
 
-                // 3. Fetch players and sort in-memory by stats->wins
-                const { data: playerData } = await supabase
-                    .from('players')
-                    .select('*')
-                    .limit(50);
+            // 3. Fetch players and sort in-memory by stats->wins
+            const { data: playerData } = await supabase
+                .from('players')
+                .select('*')
+                .limit(50);
 
-                if (playerData) {
-                    const sorted = (playerData as Player[]).sort((a, b) => {
-                        const winsA = Number(a.stats?.wins || 0);
-                        const winsB = Number(b.stats?.wins || 0);
-                        if (winsB !== winsA) return winsB - winsA;
+            if (playerData) {
+                const sorted = (playerData as Player[]).sort((a, b) => {
+                    const winsA = Number(a.stats?.wins || 0);
+                    const winsB = Number(b.stats?.wins || 0);
+                    if (winsB !== winsA) return winsB - winsA;
 
-                        const killsA = Number(a.stats?.kills || 0);
-                        const killsB = Number(b.stats?.kills || 0);
-                        return killsB - killsA;
-                    }).slice(0, 8);
+                    const killsA = Number(a.stats?.kills || 0);
+                    const killsB = Number(b.stats?.kills || 0);
+                    return killsB - killsA;
+                }).slice(0, 8);
 
-                    setTopPlayers(sorted);
-                }
-            } catch (err) {
-                console.error('Error fetching map telemetry:', err);
-            } finally {
-                setLoading(false);
+                setTopPlayers(sorted);
             }
+        } catch (err) {
+            console.error('Error fetching map telemetry:', err);
+        } finally {
+            setLoading(false);
         }
+    };
 
+    useEffect(() => {
         fetchTelemetry();
 
-        // Auto-refresh telemetry every 15 seconds
-        const interval = setInterval(fetchTelemetry, 15000);
-        return () => clearInterval(interval);
+        // Subscribe to live Postgres database changes for all relevant tables
+        const channel = supabase
+            .channel('live_map_stats')
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'map_attempts' },
+                () => fetchTelemetry()
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'map_wins' },
+                () => fetchTelemetry()
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'map_fails' },
+                () => fetchTelemetry()
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'stages_wins' },
+                () => fetchTelemetry()
+            )
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'players' },
+                () => fetchTelemetry()
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
     }, []);
 
     const formatPlaytime = (seconds: number) => {
@@ -108,19 +138,19 @@ export const MapStats: React.FC = () => {
                 <div className="row g-3 mt-2">
                     <div className="col-md-4">
                         <div className="bg-dark p-3 rounded-3 border border-secondary border-opacity-25 text-center">
-                            <span className="text-uppercase small text-white-50 fw-semibold">Total Runs Started</span>
+                            <span className="text-uppercase small text-white-50 fw-semibold">Total rounds started</span>
                             <h2 className="fw-bold text-white mb-0 mt-1">{totals.attempts}</h2>
                         </div>
                     </div>
                     <div className="col-md-4">
                         <div className="bg-dark p-3 rounded-3 border border-success border-opacity-25 text-center">
-                            <span className="text-uppercase small text-success fw-semibold">Human Victories</span>
+                            <span className="text-uppercase small text-success fw-semibold">Human Wins</span>
                             <h2 className="fw-bold text-success mb-0 mt-1">{totals.wins}</h2>
                         </div>
                     </div>
                     <div className="col-md-4">
                         <div className="bg-dark p-3 rounded-3 border border-danger border-opacity-25 text-center">
-                            <span className="text-uppercase small text-danger fw-semibold">Zombie Infections (Fails)</span>
+                            <span className="text-uppercase small text-danger fw-semibold">Zombie Wins</span>
                             <h2 className="fw-bold text-danger mb-0 mt-1">{totals.fails}</h2>
                         </div>
                     </div>
