@@ -42,6 +42,12 @@ export const Navbar: React.FC = () => {
                     </NavLink>
                     <NavLink
                         className={({ isActive }) => `nav-link px-3 py-2 rounded-pill fw-medium ${isActive ? 'bg-warning text-dark fw-bold' : 'text-light'}`}
+                        to="/MonkeyHistory"
+                    >
+                        Monkey History
+                    </NavLink>
+                    <NavLink
+                        className={({ isActive }) => `nav-link px-3 py-2 rounded-pill fw-medium ${isActive ? 'bg-warning text-dark fw-bold' : 'text-light'}`}
                         to="/admin"
                     >
                         Admin Panel

@@ -6,6 +6,7 @@ import { Changelogs } from './pages/Changelogs';
 import { Participants } from './pages/Participants';
 import { MapItems } from './pages/MapItems';
 import { MapLocations } from './pages/MapLocations';
+import { MonkeyHistory } from './pages/MonkeyHistory';
 import { Admin } from './pages/Admin';
 
 export const App: React.FC = () => {
@@ -20,6 +21,7 @@ export const App: React.FC = () => {
             <Route path="/participants" element={<Participants />} />
             <Route path="/items" element={<MapItems />} />
             <Route path="/locations" element={<MapLocations />} />
+            <Route path="/MonkeyHistory" element={<MonkeyHistory />} />
             <Route path="/admin" element={<Admin />} />
           </Routes>
         </main>

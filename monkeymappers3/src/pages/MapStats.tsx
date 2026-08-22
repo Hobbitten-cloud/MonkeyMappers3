@@ -93,10 +93,6 @@ export const MapStats: React.FC = () => {
         return `${mins}m ${secs}s`;
     };
 
-    const winRate = totals.attempts > 0
-        ? ((totals.wins / totals.attempts) * 100).toFixed(1)
-        : '0.0';
-
     return (
         <div className="container py-2" style={{ maxWidth: '1000px' }}>
             {/* Header Banner */}
@@ -106,9 +102,6 @@ export const MapStats: React.FC = () => {
                         <h2 className="text-warning fw-bold mb-1">ze_monkey_mappers3</h2>
                         <p className="text-white-50 mb-0 small">Live map telemetry & player statistics</p>
                     </div>
-                    <span className="badge bg-dark border border-warning text-warning px-3 py-2 rounded-pill small">
-                        Win Rate: {winRate}%
-                    </span>
                 </div>
 
                 {/* High-Level Stat Cards */}
