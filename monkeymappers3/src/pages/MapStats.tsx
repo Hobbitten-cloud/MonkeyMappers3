@@ -23,12 +23,12 @@ interface StageWin {
     stage_playtime: number;
     session_id?: number;
     round_id?: number;
-    timestamp: string;
+    timestamp: string | number;
 }
 
 interface MapSession {
     id: number;
-    timestamp: string;
+    timestamp: string | number;
 }
 
 export const MapStats: React.FC = () => {
@@ -128,15 +128,30 @@ export const MapStats: React.FC = () => {
         return hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m ${secs}s`;
     };
 
-    const formatTimestamp = (isoString: string) => {
-        const date = new Date(isoString);
-        return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) +
-            ' ' +
-            date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const formatTimestamp = (input: string | number, short = false) => {
+        if (!input) return 'N/A';
+
+        let date: Date;
+        const strInput = String(input).trim();
+
+        if (/^\d+$/.test(strInput)) {
+            const num = Number(strInput);
+            date = num < 1e11 ? new Date(num * 1000) : new Date(num);
+        } else {
+            date = new Date(strInput);
+        }
+
+        if (isNaN(date.getTime())) return 'Invalid Date';
+
+        const dateString = date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+
+        if (short) return dateString;
+
+        return `${dateString} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
     };
 
     return (
-        <div className="container py-2" style={{ maxWidth: '1000px' }}>
+        <div className="container py-4" style={{ maxWidth: '1100px' }}>
             {/* Header Banner */}
             <div className="card bg-black bg-gradient border-0 shadow-lg p-4 rounded-4 mb-4">
                 <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
@@ -150,13 +165,14 @@ export const MapStats: React.FC = () => {
                         <label className="text-white-50 small mb-0 fw-bold">Filter Session:</label>
                         <select
                             className="form-select form-select-sm bg-dark text-warning border-secondary"
+                            style={{ minWidth: '220px' }}
                             value={selectedSessionId}
                             onChange={(e) => setSelectedSessionId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
                         >
                             <option value="all">All Historical Sessions</option>
                             {sessions.map((sess, idx) => (
                                 <option key={sess.id} value={sess.id}>
-                                    Session #{sess.id} {idx === 0 ? '(Active)' : `(${new Date(sess.timestamp).toLocaleDateString()})`}
+                                    Session #{sess.id} {idx === 0 ? '(Active)' : `(${formatTimestamp(sess.timestamp, true)})`}
                                 </option>
                             ))}
                         </select>
@@ -201,9 +217,12 @@ export const MapStats: React.FC = () => {
                     {/* Sessions History */}
                     <div className="col-lg-6">
                         <div className="card bg-black bg-gradient border-0 shadow-lg p-4 rounded-4 h-100">
-                            <h5 className="text-warning fw-bold mb-3 d-flex align-items-center gap-2">
-                                <span>📅</span> Play Sessions History
-                            </h5>
+                            <div className="d-flex justify-content-between align-items-center mb-3">
+                                <h5 className="text-warning fw-bold mb-0">Play Sessions History</h5>
+                                <span className="badge bg-secondary text-dark fw-bold">
+                                    {selectedSessionId === 'all' ? 'Viewing: All Sessions' : `Viewing: Session #${selectedSessionId}`}
+                                </span>
+                            </div>
                             {sessions.length === 0 ? (
                                 <div className="text-white-50 text-center py-3 small">No map sessions recorded yet.</div>
                             ) : (
@@ -247,9 +266,12 @@ export const MapStats: React.FC = () => {
                     {/* Recent Stage Clears */}
                     <div className="col-lg-6">
                         <div className="card bg-black bg-gradient border-0 shadow-lg p-4 rounded-4 h-100">
-                            <h5 className="text-warning fw-bold mb-3 d-flex align-items-center gap-2">
-                                <span>🏆</span> Stage Clears {selectedSessionId !== 'all' ? `(#${selectedSessionId})` : ''}
-                            </h5>
+                            <div className="d-flex justify-content-between align-items-center mb-3">
+                                <h5 className="text-warning fw-bold mb-0">Stage Clears</h5>
+                                <span className="badge bg-secondary text-dark fw-bold">
+                                    {selectedSessionId === 'all' ? 'All Sessions' : `Session #${selectedSessionId}`}
+                                </span>
+                            </div>
                             {recentStageWins.length === 0 ? (
                                 <div className="text-white-50 text-center py-4 small">No stage victories recorded for this filter.</div>
                             ) : (
@@ -287,12 +309,10 @@ export const MapStats: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Full-width Leaderboard cleanly laid out without scrollbars */}
+                    {/* Leaderboard */}
                     <div className="col-12">
                         <div className="card bg-black bg-gradient border-0 shadow-lg p-4 rounded-4">
-                            <h5 className="text-warning fw-bold mb-3 d-flex align-items-center gap-2">
-                                <span>🥇</span> Overall Leaderboard
-                            </h5>
+                            <h5 className="text-warning fw-bold mb-3">Overall Leaderboard</h5>
                             {topPlayers.length === 0 ? (
                                 <div className="text-white-50 text-center py-4 small">No player statistics recorded yet.</div>
                             ) : (
@@ -312,10 +332,7 @@ export const MapStats: React.FC = () => {
                                                 <tr key={p.id} className="border-bottom border-secondary border-opacity-10">
                                                     <td className="py-2 px-3">
                                                         <div className="fw-bold text-white text-nowrap">
-                                                            {index === 0 && '👑 '}
-                                                            {index === 1 && '🥈 '}
-                                                            {index === 2 && '🥉 '}
-                                                            {p.name}
+                                                            #{index + 1} {p.name}
                                                         </div>
                                                         <code className="text-warning small">{p.steamid}</code>
                                                     </td>
@@ -331,10 +348,10 @@ export const MapStats: React.FC = () => {
                                                     </td>
                                                     <td className="py-2 px-3 text-center">
                                                         <span className="badge bg-secondary text-white me-1">
-                                                            ☠️ {p.stats?.deaths || 0}
+                                                            Deaths: {p.stats?.deaths || 0}
                                                         </span>
                                                         <span className="badge bg-dark text-white-50 border border-secondary border-opacity-25">
-                                                            🔄 {p.stats?.attempts || 0}
+                                                            Attempts: {p.stats?.attempts || 0}
                                                         </span>
                                                     </td>
                                                     <td className="py-2 px-3 text-end fw-bold text-light text-nowrap">
