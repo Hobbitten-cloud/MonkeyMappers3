@@ -42,6 +42,10 @@ interface MapSession {
 interface MapRound {
     id: number;
     session_id: number;
+    started_players_num: number;
+    max_players_num: number;
+    timestamp: string | number;
+    players: { name: string; steamid?: string }[];
 }
 
 export const MapStats: React.FC = () => {
@@ -55,14 +59,24 @@ export const MapStats: React.FC = () => {
     const [recentStageWins, setRecentStageWins] = useState<StageWin[]>([]);
     const [topPlayers, setTopPlayers] = useState<Player[]>([]);
     const [sessions, setSessions] = useState<MapSession[]>([]);
+    const [rounds, setRounds] = useState<MapRound[]>([]);
 
     const fetchTelemetry = async () => {
         try {
-            // 1. Fetch Servers
+            // 1. Fetch Servers and deduplicate
             const { data: serverData } = await supabase.from('servers').select('*');
-            if (serverData) setServers(serverData as Server[]);
+            if (serverData) {
+                const uniqueServers = Array.from(
+                    new Map((serverData as Server[]).map(srv => [`${srv.server_ip}:${srv.server_port}`, srv])).values()
+                );
+                setServers(uniqueServers);
+                // Default selection to first server if 'all' isn't explicitly set and servers exist
+                if (selectedServerId === 'all' && uniqueServers.length > 0) {
+                    // We can keep 'all' or default, but let's allow 'all'
+                }
+            }
 
-            // 2. Fetch Sessions (filtered by server_id if specified)
+            // 2. Fetch Sessions
             let sessionQuery = supabase.from('map_sessions').select('*', { count: 'exact' }).order('timestamp', { ascending: false });
             if (selectedServerId !== 'all') {
                 sessionQuery = sessionQuery.eq('server_id', selectedServerId);
@@ -72,8 +86,8 @@ export const MapStats: React.FC = () => {
 
             const validSessionIds = sessionData ? sessionData.map(s => s.id) : [];
 
-            // 3. Fetch Rounds matching the session scope
-            let roundsQuery = supabase.from('map_rounds').select('id, session_id');
+            // 3. Fetch Rounds
+            let roundsQuery = supabase.from('map_rounds').select('*').order('timestamp', { ascending: false });
             if (selectedSessionId !== 'all') {
                 roundsQuery = roundsQuery.eq('session_id', selectedSessionId);
             } else if (selectedServerId !== 'all' && validSessionIds.length > 0) {
@@ -82,36 +96,34 @@ export const MapStats: React.FC = () => {
                 roundsQuery = roundsQuery.eq('session_id', -1);
             }
             const { data: roundsData } = await roundsQuery;
+            if (roundsData) setRounds(roundsData as MapRound[]);
+
             const validRoundIds = roundsData ? roundsData.map((r: MapRound) => r.id) : [];
 
-            // 4. Query metrics using round_id for stage wins & rounds/wins/fails tracking
-            let roundsCountQuery = supabase.from('map_rounds').select('*', { count: 'exact', head: true });
+            // 4. Query metrics using round_id
             let winsQuery = supabase.from('map_wins').select('*', { count: 'exact', head: true });
             let failsQuery = supabase.from('map_fails').select('*', { count: 'exact', head: true });
             let stageWinsQuery = supabase.from('stages_wins').select('*').order('timestamp', { ascending: false });
 
             if (selectedSessionId !== 'all' || selectedServerId !== 'all') {
                 if (validRoundIds.length > 0) {
-                    roundsCountQuery = roundsCountQuery.in('id', validRoundIds);
                     winsQuery = winsQuery.in('round_id', validRoundIds);
                     failsQuery = failsQuery.in('round_id', validRoundIds);
                     stageWinsQuery = stageWinsQuery.in('round_id', validRoundIds);
                 } else {
-                    roundsCountQuery = roundsCountQuery.eq('id', -1);
                     winsQuery = winsQuery.eq('round_id', -1);
                     failsQuery = failsQuery.eq('round_id', -1);
                     stageWinsQuery = stageWinsQuery.eq('round_id', -1);
                 }
             }
 
-            // 5. Query map_stats for highest score based on server_id relationship
+            // 5. Query map_stats for highest score
             let statsQuery = supabase.from('map_stats').select('highest_score, server_id');
             if (selectedServerId !== 'all') {
                 statsQuery = statsQuery.eq('server_id', selectedServerId);
             }
 
-            const [{ count: attempts }, { count: wins }, { count: fails }, { data: statsData }] = await Promise.all([
-                roundsCountQuery,
+            const [{ count: wins }, { count: fails }, { data: statsData }] = await Promise.all([
                 winsQuery,
                 failsQuery,
                 statsQuery
@@ -123,7 +135,7 @@ export const MapStats: React.FC = () => {
             }
 
             setTotals({
-                attempts: attempts || 0,
+                attempts: roundsData ? roundsData.length : 0,
                 wins: wins || 0,
                 fails: fails || 0,
                 sessions: sessionsCount || 0,
@@ -132,14 +144,13 @@ export const MapStats: React.FC = () => {
 
             const { data: stageData } = await stageWinsQuery;
             if (stageData) {
-                // Keep only the most recent unique entry per stage name to eliminate clutter/duplicates
                 const uniqueStages = Array.from(
                     new Map((stageData as StageWin[]).map(item => [item.stage_won, item])).values()
                 );
                 setRecentStageWins(uniqueStages);
             }
 
-            // 6. Fetch Players matching server_id constraint
+            // 6. Fetch Server-Specific Players Leaderboard
             let playerQuery = supabase.from('players').select('*');
             if (selectedServerId !== 'all') {
                 playerQuery = playerQuery.eq('server_id', selectedServerId);
@@ -150,7 +161,7 @@ export const MapStats: React.FC = () => {
                     const winsA = Number(a.stats?.wins || 0);
                     const winsB = Number(b.stats?.wins || 0);
                     if (winsB !== winsA) return winsB - winsA;
-                    return Number(b.stats?.playtime || 0) - Number(a.stats?.playtime || 0);
+                    return Number(b.stats?.playtime || 0) - Number(b.stats?.playtime || 0);
                 }).slice(0, 10);
                 setTopPlayers(sorted);
             }
@@ -204,51 +215,52 @@ export const MapStats: React.FC = () => {
 
     return (
         <div className="container py-4" style={{ maxWidth: '1200px' }}>
+            {/* Server Navigation Navbar */}
+            <ul className="nav nav-pills bg-dark p-2 rounded-4 mb-4 shadow-sm gap-2">
+                <li className="nav-item">
+                    <button
+                        className={`nav-link px-4 fw-bold ${selectedServerId === 'all' ? 'active bg-warning text-dark' : 'text-light'}`}
+                        onClick={() => setSelectedServerId('all')}
+                    >
+                        All Servers
+                    </button>
+                </li>
+                {servers.map((srv) => (
+                    <li className="nav-item" key={srv.server_id}>
+                        <button
+                            className={`nav-link px-4 fw-bold ${selectedServerId === srv.server_id ? 'active bg-warning text-dark' : 'text-light'}`}
+                            onClick={() => setSelectedServerId(srv.server_id)}
+                        >
+                            {srv.server_name}
+                        </button>
+                    </li>
+                ))}
+            </ul>
+
             {/* Header Banner */}
             <div className="card bg-black bg-gradient border-0 shadow-lg p-4 rounded-4 mb-4">
                 <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
                     <div>
                         <h2 className="text-warning fw-bold mb-1">ze_monkey_mappers3</h2>
-                        <p className="text-white-50 mb-0 small">Multi-server live telemetry & player stats</p>
+                        <p className="text-white-50 mb-0 small">Live Multi-Server Telemetry & Round Details</p>
                     </div>
 
-                    {/* Filters Container */}
-                    <div className="d-flex align-items-center gap-2 flex-wrap">
-                        {/* Server Filter */}
-                        <div className="d-flex align-items-center gap-2">
-                            <label className="text-white-50 small mb-0 fw-bold">Server:</label>
-                            <select
-                                className="form-select form-select-sm bg-dark text-warning border-secondary"
-                                style={{ minWidth: '160px' }}
-                                value={selectedServerId}
-                                onChange={(e) => setSelectedServerId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-                            >
-                                <option value="all">All Servers</option>
-                                {servers.map((srv) => (
-                                    <option key={srv.server_id} value={srv.server_id}>
-                                        {srv.server_name}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {/* Session Filter */}
-                        <div className="d-flex align-items-center gap-2">
-                            <label className="text-white-50 small mb-0 fw-bold">Session:</label>
-                            <select
-                                className="form-select form-select-sm bg-dark text-warning border-secondary"
-                                style={{ minWidth: '180px' }}
-                                value={selectedSessionId}
-                                onChange={(e) => setSelectedSessionId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-                            >
-                                <option value="all">All Sessions</option>
-                                {sessions.map((sess, idx) => (
-                                    <option key={sess.id} value={sess.id}>
-                                        Session #{sess.id} {idx === 0 ? '(Active)' : ''}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
+                    {/* Session Filter */}
+                    <div className="d-flex align-items-center gap-2">
+                        <label className="text-white-50 small mb-0 fw-bold">Session:</label>
+                        <select
+                            className="form-select form-select-sm bg-dark text-warning border-secondary"
+                            style={{ minWidth: '180px' }}
+                            value={selectedSessionId}
+                            onChange={(e) => setSelectedSessionId(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                        >
+                            <option value="all">All Sessions</option>
+                            {sessions.map((sess, idx) => (
+                                <option key={sess.id} value={sess.id}>
+                                    Session #{sess.id} {idx === 0 ? '(Active)' : ''}
+                                </option>
+                            ))}
+                        </select>
                     </div>
                 </div>
 
@@ -293,54 +305,79 @@ export const MapStats: React.FC = () => {
                 </div>
             ) : (
                 <div className="row g-4">
-                    {/* Sessions History */}
+                    {/* Sessions & Rounds Breakdown */}
                     <div className="col-lg-12">
                         <div className="card bg-black bg-gradient border-0 shadow-lg p-4 rounded-4">
                             <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-                                <h5 className="text-warning fw-bold mb-0">Play Sessions History</h5>
+                                <h5 className="text-warning fw-bold mb-0">Sessions & Round History</h5>
                                 <span className="badge bg-secondary text-dark fw-bold">
-                                    {selectedSessionId === 'all' ? 'Viewing: All Sessions' : `Viewing: Session #${selectedSessionId}`}
+                                    {selectedSessionId === 'all' ? 'All Sessions' : `Session #${selectedSessionId}`}
                                 </span>
                             </div>
-                            {sessions.length === 0 ? (
-                                <div className="text-white-50 text-center py-3 small">No sessions recorded yet.</div>
-                            ) : (
-                                <div className="table-responsive" style={{ maxHeight: '250px', overflowY: 'auto' }}>
-                                    <table className="table table-dark table-hover align-middle mb-0">
-                                        <thead className="bg-dark text-uppercase small text-warning border-bottom border-secondary border-opacity-25 sticky-top">
-                                            <tr>
-                                                <th className="py-2 px-3">Session ID</th>
-                                                <th className="py-2 px-3">Server</th>
-                                                <th className="py-2 px-3">Date & Timestamp</th>
-                                                <th className="py-2 px-3 text-end">Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {sessions.map((sess, idx) => (
-                                                <tr key={sess.id} className={selectedSessionId === sess.id ? 'table-active' : ''}>
-                                                    <td className="py-2 px-3 fw-bold text-warning">
-                                                        #Session {sess.id} {idx === 0 && <span className="badge bg-success text-dark ms-2">Active</span>}
-                                                    </td>
-                                                    <td className="py-2 px-3 text-white-50">
-                                                        <span className="badge bg-dark border border-secondary border-opacity-25 text-light">
-                                                            {getServerName(sess.server_id)}
-                                                        </span>
-                                                    </td>
-                                                    <td className="py-2 px-3 text-white small">{formatTimestamp(sess.timestamp)}</td>
-                                                    <td className="py-2 px-3 text-end">
-                                                        <button
-                                                            className={`btn btn-sm ${selectedSessionId === sess.id ? 'btn-warning fw-bold' : 'btn-outline-warning'}`}
-                                                            onClick={() => setSelectedSessionId(sess.id)}
-                                                        >
-                                                            {selectedSessionId === sess.id ? 'Viewing' : 'View'}
-                                                        </button>
-                                                    </td>
+
+                            <div className="row g-3">
+                                <div className="col-lg-5">
+                                    <h6 className="text-white-50 small text-uppercase fw-bold">Play Sessions</h6>
+                                    <div className="table-responsive bg-dark rounded-3 border border-secondary border-opacity-25" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                                        <table className="table table-dark table-hover align-middle mb-0 small">
+                                            <thead>
+                                                <tr>
+                                                    <th className="px-3 py-2">ID</th>
+                                                    <th className="px-3 py-2">Server</th>
+                                                    <th className="px-3 py-2">Timestamp</th>
+                                                    <th className="px-3 py-2 text-end">Action</th>
                                                 </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                            </thead>
+                                            <tbody>
+                                                {sessions.map((sess) => (
+                                                    <tr key={sess.id} className={selectedSessionId === sess.id ? 'table-active' : ''}>
+                                                        <td className="px-3 py-2 text-warning fw-bold">#{sess.id}</td>
+                                                        <td className="px-3 py-2 text-white-50">{getServerName(sess.server_id)}</td>
+                                                        <td className="px-3 py-2 text-light">{formatTimestamp(sess.timestamp, true)}</td>
+                                                        <td className="px-3 py-2 text-end">
+                                                            <button
+                                                                className={`btn btn-xs py-0 px-2 ${selectedSessionId === sess.id ? 'btn-warning fw-bold' : 'btn-outline-warning'}`}
+                                                                onClick={() => setSelectedSessionId(sess.id)}
+                                                                style={{ fontSize: '0.75rem' }}
+                                                            >
+                                                                {selectedSessionId === sess.id ? 'Viewing' : 'View'}
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
-                            )}
+
+                                <div className="col-lg-7">
+                                    <h6 className="text-white-50 small text-uppercase fw-bold">Rounds in Scope ({rounds.length})</h6>
+                                    <div className="table-responsive bg-dark rounded-3 border border-secondary border-opacity-25" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                                        <table className="table table-dark table-hover align-middle mb-0 small">
+                                            <thead>
+                                                <tr>
+                                                    <th className="px-3 py-2">Round ID</th>
+                                                    <th className="px-3 py-2">Players (Start / Max)</th>
+                                                    <th className="px-3 py-2">Timestamp</th>
+                                                    <th className="px-3 py-2 text-end">Participants</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {rounds.map((rnd) => (
+                                                    <tr key={rnd.id}>
+                                                        <td className="px-3 py-2 text-info fw-bold">#Round {rnd.id}</td>
+                                                        <td className="px-3 py-2 text-white">{rnd.started_players_num} / {rnd.max_players_num}</td>
+                                                        <td className="px-3 py-2 text-light">{formatTimestamp(rnd.timestamp, true)}</td>
+                                                        <td className="px-3 py-2 text-end text-white-50">
+                                                            {rnd.players && rnd.players.length > 0 ? `${rnd.players.length} Players` : 'No payload'}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -380,10 +417,6 @@ export const MapStats: React.FC = () => {
                                                         </div>
                                                         <small className="text-white-50 d-block">Time: <strong className="text-light">{formatPlaytime(s.stage_playtime)}</strong></small>
                                                     </div>
-                                                    <div className="d-flex justify-content-between align-items-center mt-3 pt-2 border-top border-secondary border-opacity-10 small">
-                                                        <span className="text-success fw-bold" style={{ fontSize: '0.75rem' }}>{s.humans_count} CTs Survived</span>
-                                                        <span className="text-white-50" style={{ fontSize: '0.7rem' }}>{formatTimestamp(s.timestamp, true)}</span>
-                                                    </div>
                                                 </div>
                                             </div>
                                         ))}
@@ -393,12 +426,12 @@ export const MapStats: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Leaderboard */}
+                    {/* Server-Specific Leaderboard */}
                     <div className="col-12">
                         <div className="card bg-black bg-gradient border-0 shadow-lg p-4 rounded-4">
-                            <h5 className="text-warning fw-bold mb-3">Overall Leaderboard</h5>
+                            <h5 className="text-warning fw-bold mb-3">Server Player Leaderboard</h5>
                             {topPlayers.length === 0 ? (
-                                <div className="text-white-50 text-center py-4 small">No player statistics recorded yet.</div>
+                                <div className="text-white-50 text-center py-4 small">No player statistics recorded for this server yet.</div>
                             ) : (
                                 <div className="table-responsive">
                                     <table className="table table-dark table-hover align-middle mb-0">
