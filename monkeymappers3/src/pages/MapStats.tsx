@@ -73,11 +73,6 @@ export const MapStats: React.FC = () => {
                 setServers(activeServers);
             }
 
-            // Get selected server object if a tab is clicked
-            const selectedServer = selectedServerId === 'all'
-                ? null
-                : activeServers.find(s => s.server_id === Number(selectedServerId));
-
             // 2. Fetch Sessions with flexible server filtering
             let sessionQuery = supabase.from('map_sessions').select('*', { count: 'exact' }).order('timestamp', { ascending: false });
             const { data: allSessions } = await sessionQuery;
