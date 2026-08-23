@@ -63,49 +63,59 @@ export const MapStats: React.FC = () => {
 
     const fetchTelemetry = async () => {
         try {
-            // 1. Fetch Servers and deduplicate
+            // 1. Fetch Servers
             const { data: serverData } = await supabase.from('servers').select('*');
+            let activeServers: Server[] = [];
             if (serverData) {
-                const uniqueServers = Array.from(
+                activeServers = Array.from(
                     new Map((serverData as Server[]).map(srv => [`${srv.server_ip}:${srv.server_port}`, srv])).values()
                 );
-                setServers(uniqueServers);
-                // Default selection to first server if 'all' isn't explicitly set and servers exist
-                if (selectedServerId === 'all' && uniqueServers.length > 0) {
-                    // We can keep 'all' or default, but let's allow 'all'
-                }
+                setServers(activeServers);
             }
 
-            // 2. Fetch Sessions
+            // Get selected server object if a tab is clicked
+            const selectedServer = selectedServerId === 'all'
+                ? null
+                : activeServers.find(s => s.server_id === Number(selectedServerId));
+
+            // 2. Fetch Sessions with flexible server filtering
             let sessionQuery = supabase.from('map_sessions').select('*', { count: 'exact' }).order('timestamp', { ascending: false });
-            if (selectedServerId !== 'all') {
-                sessionQuery = sessionQuery.eq('server_id', selectedServerId);
-            }
-            const { data: sessionData, count: sessionsCount } = await sessionQuery;
-            if (sessionData) setSessions(sessionData as MapSession[]);
+            const { data: allSessions } = await sessionQuery;
 
-            const validSessionIds = sessionData ? sessionData.map(s => s.id) : [];
+            let activeSessions = allSessions || [];
+            if (selectedServerId !== 'all') {
+                activeSessions = activeSessions.filter(s => {
+                    // Match by server_id directly or fallback to string/name matching if stored loosely
+                    return Number(s.server_id) === Number(selectedServerId);
+                });
+            }
+            setSessions(activeSessions as MapSession[]);
+
+            const validSessionIds = activeSessions.map(s => s.id);
 
             // 3. Fetch Rounds
             let roundsQuery = supabase.from('map_rounds').select('*').order('timestamp', { ascending: false });
             if (selectedSessionId !== 'all') {
-                roundsQuery = roundsQuery.eq('session_id', selectedSessionId);
-            } else if (selectedServerId !== 'all' && validSessionIds.length > 0) {
-                roundsQuery = roundsQuery.in('session_id', validSessionIds);
-            } else if (selectedServerId !== 'all' && validSessionIds.length === 0) {
-                roundsQuery = roundsQuery.eq('session_id', -1);
+                roundsQuery = roundsQuery.eq('session_id', Number(selectedSessionId));
+            } else if (selectedServerId !== 'all') {
+                if (validSessionIds.length > 0) {
+                    roundsQuery = roundsQuery.in('session_id', validSessionIds);
+                } else {
+                    // If no sessions match server_id, try fetching rounds directly if your rounds table supports server_id, otherwise empty
+                    roundsQuery = roundsQuery.eq('session_id', -1);
+                }
             }
             const { data: roundsData } = await roundsQuery;
-            if (roundsData) setRounds(roundsData as MapRound[]);
+            setRounds((roundsData || []) as MapRound[]);
 
-            const validRoundIds = roundsData ? roundsData.map((r: MapRound) => r.id) : [];
+            const validRoundIds = (roundsData || []).map((r: MapRound) => r.id);
 
-            // 4. Query metrics using round_id
+            // 4. Query round-linked metrics (wins, fails, stage wins)
             let winsQuery = supabase.from('map_wins').select('*', { count: 'exact', head: true });
             let failsQuery = supabase.from('map_fails').select('*', { count: 'exact', head: true });
             let stageWinsQuery = supabase.from('stages_wins').select('*').order('timestamp', { ascending: false });
 
-            if (selectedSessionId !== 'all' || selectedServerId !== 'all') {
+            if (selectedServerId !== 'all' || selectedSessionId !== 'all') {
                 if (validRoundIds.length > 0) {
                     winsQuery = winsQuery.in('round_id', validRoundIds);
                     failsQuery = failsQuery.in('round_id', validRoundIds);
@@ -120,7 +130,7 @@ export const MapStats: React.FC = () => {
             // 5. Query map_stats for highest score
             let statsQuery = supabase.from('map_stats').select('highest_score, server_id');
             if (selectedServerId !== 'all') {
-                statsQuery = statsQuery.eq('server_id', selectedServerId);
+                statsQuery = statsQuery.eq('server_id', Number(selectedServerId));
             }
 
             const [{ count: wins }, { count: fails }, { data: statsData }] = await Promise.all([
@@ -138,7 +148,7 @@ export const MapStats: React.FC = () => {
                 attempts: roundsData ? roundsData.length : 0,
                 wins: wins || 0,
                 fails: fails || 0,
-                sessions: sessionsCount || 0,
+                sessions: activeSessions.length,
                 highestScore: maxScore
             });
 
@@ -153,7 +163,7 @@ export const MapStats: React.FC = () => {
             // 6. Fetch Server-Specific Players Leaderboard
             let playerQuery = supabase.from('players').select('*');
             if (selectedServerId !== 'all') {
-                playerQuery = playerQuery.eq('server_id', selectedServerId);
+                playerQuery = playerQuery.eq('server_id', Number(selectedServerId));
             }
             const { data: playerData } = await playerQuery;
             if (playerData) {
