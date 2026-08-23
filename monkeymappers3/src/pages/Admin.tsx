@@ -382,7 +382,7 @@ export const Admin: React.FC = () => {
                                 </div>
                                 <div className="mb-3">
                                     <label className="form-label small text-warning fw-semibold">Primary Description</label>
-                                    <textarea className="form-control bg-dark text-warning border-0" placeholder="Main overview..." value={itemDesc} onChange={(e) => setItemDesc(e.target.value)} rows={2} required />
+                                    <textarea className="form-control bg-dark text-warning border-0" placeholder="Main overview..." value={itemDesc} onChange={(e) => setItemDesc(e.target.value)} rows={2} />
                                 </div>
 
                                 {/* Base Timings */}
@@ -416,7 +416,7 @@ export const Admin: React.FC = () => {
                                                 <button type="button" className="btn-close btn-close-white btn-sm" onClick={() => handleRemoveAbility(idx)}></button>
                                             </div>
                                             <input type="text" className="form-control form-control-sm bg-black text-warning border-0 mb-2" placeholder="Ability Name" value={ab.name} onChange={(e) => handleUpdateAbility(idx, 'name', e.target.value)} required />
-                                            <textarea className="form-control form-control-sm bg-black text-warning border-0 mb-2" placeholder="Ability Details" value={ab.description} onChange={(e) => handleUpdateAbility(idx, 'description', e.target.value)} rows={2} required />
+                                            <textarea className="form-control form-control-sm bg-black text-warning border-0 mb-2" placeholder="Ability Details (Optional)" value={ab.description} onChange={(e) => handleUpdateAbility(idx, 'description', e.target.value)} rows={2} />
                                             <div className="row g-2">
                                                 <div className="col-4">
                                                     <input type="number" className="form-control form-control-sm bg-black text-warning border-0" placeholder="Delay" value={ab.activation_delay} onChange={(e) => handleUpdateAbility(idx, 'activation_delay', Number(e.target.value))} />
