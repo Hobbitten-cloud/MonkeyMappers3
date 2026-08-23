@@ -10,6 +10,7 @@ interface Server {
 
 interface Player {
     id: number;
+    server_id?: number;
     name: string;
     steamid: string;
     stats: {
@@ -19,6 +20,14 @@ interface Player {
         attempts?: number;
         failures?: number;
     };
+}
+
+interface RawPlayerRef {
+    id?: number;
+    player_id?: number;
+    steamid?: string;
+    team?: number; // 3 = CT, 2 = T
+    name?: string;
 }
 
 interface StageWin {
@@ -32,6 +41,7 @@ interface StageWin {
     timestamp: string | number;
     server_name?: string;
     server_id?: number;
+    players?: any;
 }
 
 interface MapSession {
@@ -50,6 +60,10 @@ interface MapRound {
     max_players_num: number;
     timestamp: string | number;
     session_round_number?: number;
+    ct_score?: number;
+    t_score?: number;
+    players?: any;
+    server_id?: number;
 }
 
 export const MapStats: React.FC = () => {
@@ -59,20 +73,33 @@ export const MapStats: React.FC = () => {
     const [selectedSessionId, setSelectedSessionId] = useState<number | 'all'>('all');
     const [activeSubTab, setActiveSubTab] = useState<'sessions' | 'rounds'>('sessions');
 
+    // Round Details Modal State
+    const [selectedRoundForModal, setSelectedRoundForModal] = useState<MapRound | null>(null);
+
     // Stage Filters & Sorting State
     const [stageSearch, setStageSearch] = useState<string>('');
     const [stageTypeFilter, setStageTypeFilter] = useState<'all' | 'boss' | 'standard'>('all');
     const [stageSortBy, setStageSortBy] = useState<'time_asc' | 'time_desc' | 'name_asc' | 'name_desc' | 'cts_desc' | 'recent'>('time_asc');
 
-    const [totals, setTotals] = useState({ attempts: 0, wins: 0, fails: 0, sessions: 0, highestScore: 0 });
+    const [totals, setTotals] = useState({
+        attempts: 0,
+        wins: 0,
+        fails: 0,
+        sessions: 0,
+        highestScore: 0,
+        highestScoreServer: ''
+    });
     const [recentStageWins, setRecentStageWins] = useState<StageWin[]>([]);
     const [topPlayers, setTopPlayers] = useState<Player[]>([]);
     const [sessions, setSessions] = useState<MapSession[]>([]);
     const [rounds, setRounds] = useState<MapRound[]>([]);
 
+    // Global Player Lookup Map by `${server_id}_${player_id}` and fallback `${player_id}`
+    const [playerLookup, setPlayerLookup] = useState<Map<string, Player>>(new Map());
+
     const fetchTelemetry = async () => {
         try {
-            // 1. Fetch Servers & map IP:Port duplicates
+            // 1. Fetch Servers
             const { data: serverData } = await supabase.from('servers').select('*');
             let rawServers: Server[] = serverData || [];
 
@@ -106,13 +133,23 @@ export const MapStats: React.FC = () => {
                 allowedRawServerIds = rawServers.map(s => s.server_id);
             }
 
-            // 2. Fetch Sessions & Rounds
+            // 2. Fetch All Players for ID-to-Name Resolution
+            const { data: allPlayersData } = await supabase.from('players').select('*');
+            const pMap = new Map<string, Player>();
+            (allPlayersData || []).forEach((p: Player) => {
+                pMap.set(`${p.server_id}_${p.id}`, p);
+                pMap.set(`id_${p.id}`, p);
+                if (p.steamid) pMap.set(`steam_${p.steamid}`, p);
+            });
+            setPlayerLookup(pMap);
+
+            // 3. Fetch Sessions & Rounds
             const { data: allSessionsData } = await supabase.from('map_sessions').select('*').order('timestamp', { ascending: false });
             const { data: allRoundsData } = await supabase.from('map_rounds').select('*').order('timestamp', { ascending: true });
 
-            // 3. Fetch Map Wins & Map Fails
+            // 4. Fetch Wins, Fails & Stats
             const [{ data: winsData }, { data: failsData }, { data: statsData }] = await Promise.all([
-                supabase.from('map_wins').select('id, round_id, session_id'),
+                supabase.from('map_wins').select('id, round_id, session_id, players'),
                 supabase.from('map_fails').select('id, round_id, session_id'),
                 supabase.from('map_stats').select('highest_score, server_id')
             ]);
@@ -136,7 +173,7 @@ export const MapStats: React.FC = () => {
 
             const validSessionIds = activeSessions.map(s => Number(s.id));
 
-            // 4. Process Rounds & calculate Session-Relative Round Numbers
+            // Process Rounds
             const sessionRoundGroups = new Map<number, MapRound[]>();
             (allRoundsData || []).forEach(r => {
                 const sid = Number(r.session_id);
@@ -150,8 +187,10 @@ export const MapStats: React.FC = () => {
             sessionRoundGroups.forEach((sessionRounds) => {
                 sessionRounds.sort((a, b) => Number(a.id) - Number(b.id));
                 sessionRounds.forEach((r, idx) => {
+                    const parentSession = allSessions.find(s => Number(s.id) === Number(r.session_id));
                     processedAllRounds.push({
                         ...r,
+                        server_id: parentSession?.raw_server_id,
                         session_round_number: idx + 1
                     });
                 });
@@ -200,13 +239,27 @@ export const MapStats: React.FC = () => {
                 totalFails = enrichedSessions.reduce((sum, s) => sum + (s.fails || 0), 0);
             }
 
-            let filteredStats = statsData || [];
-            if (selectedServerId !== 'all' && allowedRawServerIds.length > 0) {
-                filteredStats = filteredStats.filter(s => allowedRawServerIds.includes(Number(s.server_id)));
-            }
+            // High Score Calculation
             let maxScore = 0;
-            if (filteredStats.length > 0) {
-                maxScore = Math.max(...filteredStats.map(s => Number(s.highest_score || 0)));
+            let topServerName = '';
+
+            if (selectedServerId === 'all') {
+                if (statsData && statsData.length > 0) {
+                    const topStatRow = statsData.reduce((max, s) =>
+                        Number(s.highest_score || 0) > Number(max.highest_score || 0) ? s : max
+                        , statsData[0]);
+
+                    maxScore = Number(topStatRow.highest_score || 0);
+                    const rawSrvId = Number(topStatRow.server_id);
+                    const canonicalId = serverIdToCanonicalId.get(rawSrvId) || rawSrvId;
+                    const matchedServer = uniqueServers.find(s => s.server_id === canonicalId);
+                    topServerName = matchedServer ? matchedServer.server_name : 'Server';
+                }
+            } else {
+                const serverStats = (statsData || []).filter(s => allowedRawServerIds.includes(Number(s.server_id)));
+                if (serverStats.length > 0) {
+                    maxScore = Math.max(...serverStats.map(s => Number(s.highest_score || 0)));
+                }
             }
 
             setTotals({
@@ -214,7 +267,8 @@ export const MapStats: React.FC = () => {
                 wins: totalWins,
                 fails: totalFails,
                 sessions: enrichedSessions.length,
-                highestScore: maxScore
+                highestScore: maxScore,
+                highestScoreServer: topServerName
             });
 
             // 5. Fetch Stage Wins
@@ -251,21 +305,21 @@ export const MapStats: React.FC = () => {
                 setRecentStageWins(Array.from(fastestStagesMap.values()));
             }
 
-            // 6. Fetch Players Leaderboard
-            let playerQuery = supabase.from('players').select('*');
+            // 6. Top Players
+            let filteredPlayers = allPlayersData || [];
             if (selectedServerId !== 'all' && allowedRawServerIds.length > 0) {
-                playerQuery = playerQuery.in('server_id', allowedRawServerIds);
+                filteredPlayers = filteredPlayers.filter(p => allowedRawServerIds.includes(Number(p.server_id)));
             }
-            const { data: playerData } = await playerQuery;
-            if (playerData) {
-                const sorted = (playerData as Player[]).sort((a, b) => {
-                    const winsA = Number(a.stats?.wins || 0);
-                    const winsB = Number(b.stats?.wins || 0);
-                    if (winsB !== winsA) return winsB - winsA;
-                    return Number(b.stats?.playtime || 0) - Number(a.stats?.playtime || 0);
-                }).slice(0, 10);
-                setTopPlayers(sorted);
-            }
+
+            const sortedPlayers = (filteredPlayers as Player[]).sort((a, b) => {
+                const winsA = Number(a.stats?.wins || 0);
+                const winsB = Number(b.stats?.wins || 0);
+                if (winsB !== winsA) return winsB - winsA;
+                return Number(b.stats?.playtime || 0) - Number(a.stats?.playtime || 0);
+            }).slice(0, 10);
+
+            setTopPlayers(sortedPlayers);
+
         } catch (err) {
             console.error('Error fetching map telemetry:', err);
         } finally {
@@ -287,6 +341,51 @@ export const MapStats: React.FC = () => {
             supabase.removeChannel(channel);
         };
     }, [selectedServerId, selectedSessionId]);
+
+    // Parse Player References & Resolve Names / SteamIDs
+    const resolvePlayersWithTeams = (rawPlayerData: any, serverId?: number) => {
+        if (!rawPlayerData) return { ct: [], t: [], unassigned: [] };
+
+        let parsedList: RawPlayerRef[] = [];
+
+        if (Array.isArray(rawPlayerData)) {
+            parsedList = rawPlayerData;
+        } else if (typeof rawPlayerData === 'string') {
+            try {
+                const json = JSON.parse(rawPlayerData);
+                if (Array.isArray(json)) parsedList = json;
+            } catch {
+                const strItems = rawPlayerData.replace(/^{|}$/g, '').split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+                parsedList = strItems.map(item => ({ id: Number(item) || undefined, steamid: item }));
+            }
+        }
+
+        const ct: { name: string; steamid?: string }[] = [];
+        const t: { name: string; steamid?: string }[] = [];
+        const unassigned: { name: string; steamid?: string }[] = [];
+
+        parsedList.forEach((ref) => {
+            const pId = ref.id ?? ref.player_id;
+            const steamId = ref.steamid;
+            const team = ref.team;
+
+            let match: Player | undefined;
+            if (serverId && pId) match = playerLookup.get(`${serverId}_${pId}`);
+            if (!match && pId) match = playerLookup.get(`id_${pId}`);
+            if (!match && steamId) match = playerLookup.get(`steam_${steamId}`);
+
+            const resolvedName = ref.name || match?.name || (pId ? `Player #${pId}` : steamId || 'Unknown');
+            const resolvedSteam = steamId || match?.steamid;
+
+            const entry = { name: resolvedName, steamid: resolvedSteam };
+
+            if (team === 3) ct.push(entry);
+            else if (team === 2) t.push(entry);
+            else unassigned.push(entry);
+        });
+
+        return { ct, t, unassigned };
+    };
 
     const handleViewSession = (sess: MapSession) => {
         if (sess.server_id) {
@@ -323,7 +422,6 @@ export const MapStats: React.FC = () => {
         return `${dateString} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
     };
 
-    // Filter & Sort Logic for Stages Grid
     const filteredStages = recentStageWins
         .filter(s => {
             const matchesSearch = s.stage_won.toLowerCase().includes(stageSearch.toLowerCase());
@@ -408,33 +506,48 @@ export const MapStats: React.FC = () => {
                 {/* High-Level Stat Cards */}
                 <div className="row g-3 mt-2">
                     <div className="col-lg col-md-4 col-6">
-                        <div className="bg-dark p-3 rounded-3 border border-secondary border-opacity-25 text-center">
+                        <div className="bg-dark p-3 rounded-3 border border-secondary border-opacity-25 text-center h-100 d-flex flex-column justify-content-center">
                             <span className="text-uppercase small text-white-50 fw-semibold">Total Sessions</span>
                             <h3 className="fw-bold text-warning mb-0 mt-1">{totals.sessions}</h3>
                         </div>
                     </div>
                     <div className="col-lg col-md-4 col-6">
-                        <div className="bg-dark p-3 rounded-3 border border-secondary border-opacity-25 text-center">
+                        <div className="bg-dark p-3 rounded-3 border border-secondary border-opacity-25 text-center h-100 d-flex flex-column justify-content-center">
                             <span className="text-uppercase small text-white-50 fw-semibold">Rounds Started</span>
                             <h3 className="fw-bold text-white mb-0 mt-1">{totals.attempts}</h3>
                         </div>
                     </div>
                     <div className="col-lg col-md-4 col-6">
-                        <div className="bg-dark p-3 rounded-3 border border-success border-opacity-25 text-center">
+                        <div className="bg-dark p-3 rounded-3 border border-success border-opacity-25 text-center h-100 d-flex flex-column justify-content-center">
                             <span className="text-uppercase small text-success fw-semibold">Map Beaten</span>
                             <h3 className="fw-bold text-success mb-0 mt-1">{totals.wins}</h3>
                         </div>
                     </div>
                     <div className="col-lg col-md-4 col-6">
-                        <div className="bg-dark p-3 rounded-3 border border-danger border-opacity-25 text-center">
+                        <div className="bg-dark p-3 rounded-3 border border-danger border-opacity-25 text-center h-100 d-flex flex-column justify-content-center">
                             <span className="text-uppercase small text-danger fw-semibold">Zombie Wins</span>
                             <h3 className="fw-bold text-danger mb-0 mt-1">{totals.fails}</h3>
                         </div>
                     </div>
                     <div className="col-lg col-md-4 col-12">
-                        <div className="bg-dark p-3 rounded-3 border border-warning border-opacity-25 text-center">
+                        <div className="bg-dark p-3 rounded-3 border border-warning border-opacity-25 text-center h-100 d-flex flex-column justify-content-center">
                             <span className="text-uppercase small text-warning fw-semibold">Highest Score</span>
                             <h3 className="fw-bold text-warning mb-0 mt-1">{totals.highestScore}</h3>
+                            {selectedServerId === 'all' ? (
+                                totals.highestScoreServer && (
+                                    <small
+                                        className="text-white-50 text-truncate d-block mt-1"
+                                        style={{ fontSize: '0.72rem' }}
+                                        title={totals.highestScoreServer}
+                                    >
+                                        Held by: <strong className="text-warning">{totals.highestScoreServer}</strong>
+                                    </small>
+                                )
+                            ) : (
+                                <small className="text-white-50 d-block mt-1" style={{ fontSize: '0.72rem' }}>
+                                    Server Record
+                                </small>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -515,32 +628,67 @@ export const MapStats: React.FC = () => {
                                         </table>
                                     </div>
                                 ) : (
-                                    <div className="table-responsive bg-dark rounded-3 border border-secondary border-opacity-25" style={{ maxHeight: '320px', overflowY: 'auto' }}>
+                                    <div className="table-responsive bg-dark rounded-3 border border-secondary border-opacity-25" style={{ maxHeight: '380px', overflowY: 'auto' }}>
                                         <table className="table table-dark table-hover align-middle mb-0 small">
                                             <thead className="sticky-top bg-dark">
                                                 <tr>
                                                     <th className="px-3 py-2">Round Number</th>
                                                     <th className="px-3 py-2">Session</th>
-                                                    <th className="px-3 py-2">Players (Start / Max)</th>
+                                                    <th className="px-3 py-2 text-center">Score (CT : T)</th>
+                                                    <th className="px-3 py-2 text-center">Players (Start / Max)</th>
+                                                    <th className="px-3 py-2 text-center">Team</th>
                                                     <th className="px-3 py-2">Timestamp</th>
+                                                    <th className="px-3 py-2 text-end">Details</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {rounds.length === 0 ? (
                                                     <tr>
-                                                        <td colSpan={4} className="text-center text-white-50 py-4">No rounds recorded for this scope.</td>
+                                                        <td colSpan={7} className="text-center text-white-50 py-4">No rounds recorded for this scope.</td>
                                                     </tr>
                                                 ) : (
-                                                    rounds.map((rnd) => (
-                                                        <tr key={rnd.id} className="align-middle">
-                                                            <td className="px-3 py-2 text-info fw-bold">
-                                                                #Round {rnd.session_round_number || rnd.id}
-                                                            </td>
-                                                            <td className="px-3 py-2 text-warning">Session #{rnd.session_id}</td>
-                                                            <td className="px-3 py-2 text-white">{rnd.started_players_num} / {rnd.max_players_num}</td>
-                                                            <td className="px-3 py-2 text-light">{formatTimestamp(rnd.timestamp)}</td>
-                                                        </tr>
-                                                    ))
+                                                    rounds.map((rnd) => {
+                                                        const roster = resolvePlayersWithTeams(rnd.players, rnd.server_id);
+                                                        const totalTelemetryPlayers = roster.ct.length + roster.t.length + roster.unassigned.length;
+
+                                                        return (
+                                                            <tr key={rnd.id} className="align-middle">
+                                                                <td className="px-3 py-2 text-info fw-bold">
+                                                                    #Round {rnd.session_round_number || rnd.id}
+                                                                </td>
+                                                                <td className="px-3 py-2 text-warning">Session #{rnd.session_id}</td>
+                                                                <td className="px-3 py-2 text-center">
+                                                                    <span className="badge bg-info bg-opacity-25 text-info border border-info border-opacity-25 px-2 py-1 me-1 fw-bold">
+                                                                        CT {rnd.ct_score ?? 0}
+                                                                    </span>
+                                                                    <span className="text-white-50 small">:</span>
+                                                                    <span className="badge bg-danger bg-opacity-25 text-danger border border-danger border-opacity-25 px-2 py-1 ms-1 fw-bold">
+                                                                        T {rnd.t_score ?? 0}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-3 py-2 text-center text-white">{rnd.started_players_num} / {rnd.max_players_num}</td>
+                                                                <td className="px-3 py-2 text-center">
+                                                                    {totalTelemetryPlayers > 0 ? (
+                                                                        <span className="badge bg-dark text-warning border border-secondary px-2 py-1 font-monospace">
+                                                                            {roster.ct.length} CT / {roster.t.length} T
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-white-50 italic small">None</span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-3 py-2 text-light">{formatTimestamp(rnd.timestamp)}</td>
+                                                                <td className="px-3 py-2 text-end">
+                                                                    <button
+                                                                        className="btn btn-xs btn-outline-warning py-0 px-2 fw-semibold"
+                                                                        style={{ fontSize: '0.75rem' }}
+                                                                        onClick={() => setSelectedRoundForModal(rnd)}
+                                                                    >
+                                                                        View Players
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })
                                                 )}
                                             </tbody>
                                         </table>
@@ -550,10 +698,9 @@ export const MapStats: React.FC = () => {
                         </div>
                     )}
 
-                    {/* Fastest Stage Clears Grid with Cleaned Filter Bar */}
+                    {/* Fastest Stage Clears Grid */}
                     <div className="col-lg-12">
                         <div className="card bg-black bg-gradient border-0 shadow-lg p-4 rounded-4">
-                            {/* Card Header Title */}
                             <div className="mb-3">
                                 <h5 className="text-warning fw-bold mb-0">
                                     Fastest Stage Clears ({filteredStages.length})
@@ -563,9 +710,7 @@ export const MapStats: React.FC = () => {
                                 </small>
                             </div>
 
-                            {/* Clean Toolbar Bar */}
                             <div className="row g-3 mb-4 bg-dark bg-opacity-75 p-3 rounded-3 border border-secondary border-opacity-25 align-items-end">
-                                {/* Search Field */}
                                 <div className="col-md-5 col-12">
                                     <label className="form-label text-white-50 small mb-1 fw-semibold">Search Stage</label>
                                     <div className="position-relative">
@@ -588,7 +733,6 @@ export const MapStats: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {/* Filter by Type */}
                                 <div className="col-md-4 col-sm-6 col-12">
                                     <label className="form-label text-white-50 small mb-1 fw-semibold">Stage Type</label>
                                     <div className="btn-group btn-group-sm w-100 bg-dark border border-secondary border-opacity-25 rounded-2 p-1">
@@ -616,7 +760,6 @@ export const MapStats: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {/* Sort Control */}
                                 <div className="col-md-3 col-sm-6 col-12">
                                     <label className="form-label text-white-50 small mb-1 fw-semibold">Sort By</label>
                                     <select
@@ -634,40 +777,64 @@ export const MapStats: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Stage Grid */}
                             {filteredStages.length === 0 ? (
                                 <div className="text-white-50 text-center py-5 small border border-secondary border-opacity-25 rounded-3 bg-dark">
                                     No stage victories match your active filters or search string.
                                 </div>
                             ) : (
-                                <div className="pe-2" style={{ maxHeight: '520px', overflowY: 'auto' }}>
+                                <div className="pe-2" style={{ maxHeight: '560px', overflowY: 'auto' }}>
                                     <div className="row g-3">
-                                        {filteredStages.map((s) => (
-                                            <div key={s.id} className="col-xl-3 col-lg-4 col-md-6">
-                                                <div className="bg-dark p-3 rounded-3 border border-secondary border-opacity-15 h-100 d-flex flex-column justify-content-between">
-                                                    <div>
-                                                        <div className="d-flex justify-content-between align-items-start mb-1 gap-1">
-                                                            <span className="fw-bold text-white text-truncate" style={{ maxWidth: '65%' }}>
-                                                                {s.stage_won}
-                                                            </span>
-                                                            {s.is_boss_stage ? (
-                                                                <span className="badge bg-danger text-white fw-bold" style={{ fontSize: '0.55rem' }}>BOSS STAGE</span>
-                                                            ) : (
-                                                                <span className="badge bg-secondary text-light fw-normal" style={{ fontSize: '0.55rem' }}>STANDARD</span>
-                                                            )}
+                                        {filteredStages.map((s) => {
+                                            const roster = resolvePlayersWithTeams(s.players, s.server_id);
+                                            const ctSurvivors = roster.ct.length > 0 ? roster.ct : roster.unassigned;
+
+                                            return (
+                                                <div key={s.id} className="col-xl-3 col-lg-4 col-md-6">
+                                                    <div className="bg-dark p-3 rounded-3 border border-secondary border-opacity-15 h-100 d-flex flex-column justify-content-between">
+                                                        <div>
+                                                            <div className="d-flex justify-content-between align-items-start mb-1 gap-1">
+                                                                <span className="fw-bold text-white text-truncate" style={{ maxWidth: '65%' }}>
+                                                                    {s.stage_won}
+                                                                </span>
+                                                                {s.is_boss_stage ? (
+                                                                    <span className="badge bg-danger text-white fw-bold" style={{ fontSize: '0.55rem' }}>BOSS STAGE</span>
+                                                                ) : (
+                                                                    <span className="badge bg-secondary text-light fw-normal" style={{ fontSize: '0.55rem' }}>STANDARD</span>
+                                                                )}
+                                                            </div>
+                                                            <small className="text-warning d-block mb-1 text-truncate" style={{ fontSize: '0.75rem' }}>
+                                                                Server: <strong>{s.server_name}</strong>
+                                                            </small>
+                                                            <small className="text-white-50 d-block">Fastest Time: <strong className="text-light">{formatPlaytime(s.stage_playtime)}</strong></small>
                                                         </div>
-                                                        <small className="text-warning d-block mb-1 text-truncate" style={{ fontSize: '0.75rem' }}>
-                                                            Server: <strong>{s.server_name}</strong>
-                                                        </small>
-                                                        <small className="text-white-50 d-block">Fastest Time: <strong className="text-light">{formatPlaytime(s.stage_playtime)}</strong></small>
-                                                    </div>
-                                                    <div className="d-flex justify-content-between align-items-center mt-3 pt-2 border-top border-secondary border-opacity-10 small">
-                                                        <span className="text-success fw-bold" style={{ fontSize: '0.75rem' }}>{s.humans_count} CTs Survived</span>
-                                                        <span className="text-white-50" style={{ fontSize: '0.7rem' }}>{formatTimestamp(s.timestamp)}</span>
+
+                                                        {/* Survived Players Roster */}
+                                                        {ctSurvivors.length > 0 && (
+                                                            <div className="mt-2 pt-2 border-top border-secondary border-opacity-10">
+                                                                <span className="text-white-50 d-block mb-1" style={{ fontSize: '0.68rem' }}>Survivors:</span>
+                                                                <div className="d-flex flex-wrap gap-1">
+                                                                    {ctSurvivors.slice(0, 4).map((p, pIdx) => (
+                                                                        <span key={pIdx} className="badge bg-black bg-opacity-50 text-warning border border-secondary border-opacity-25" style={{ fontSize: '0.62rem' }}>
+                                                                            {p.name}
+                                                                        </span>
+                                                                    ))}
+                                                                    {ctSurvivors.length > 4 && (
+                                                                        <span className="badge bg-secondary text-light" style={{ fontSize: '0.62rem' }}>
+                                                                            +{ctSurvivors.length - 4}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        <div className="d-flex justify-content-between align-items-center mt-3 pt-2 border-top border-secondary border-opacity-10 small">
+                                                            <span className="text-success fw-bold" style={{ fontSize: '0.75rem' }}>{s.humans_count} CTs Survived</span>
+                                                            <span className="text-white-50" style={{ fontSize: '0.7rem' }}>{formatTimestamp(s.timestamp)}</span>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 </div>
                             )}
@@ -723,6 +890,142 @@ export const MapStats: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            {/* Round Roster Details Modal */}
+            {selectedRoundForModal && (() => {
+                const modalRoster = resolvePlayersWithTeams(selectedRoundForModal.players, selectedRoundForModal.server_id);
+                return (
+                    <div
+                        className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-3"
+                        style={{ backgroundColor: 'rgba(0,0,0,0.82)', zIndex: 1050 }}
+                        onClick={() => setSelectedRoundForModal(null)}
+                    >
+                        <div
+                            className="bg-dark text-light rounded-4 shadow-lg border border-secondary border-opacity-25 w-100 overflow-hidden"
+                            style={{ maxWidth: '650px' }}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {/* Modal Header */}
+                            <div className="bg-black p-3 px-4 d-flex justify-content-between align-items-center border-bottom border-secondary border-opacity-25">
+                                <div>
+                                    <h5 className="text-warning fw-bold mb-0">
+                                        Round #{selectedRoundForModal.session_round_number || selectedRoundForModal.id} Details
+                                    </h5>
+                                    <small className="text-white-50">Session #{selectedRoundForModal.session_id} • {formatTimestamp(selectedRoundForModal.timestamp)}</small>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="btn btn-sm text-white-50 border-0 bg-transparent fs-4 py-0"
+                                    onClick={() => setSelectedRoundForModal(null)}
+                                >
+                                    ✕
+                                </button>
+                            </div>
+
+                            {/* Modal Body */}
+                            <div className="p-4" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+                                {/* Round Overview Bar */}
+                                <div className="row g-2 mb-4">
+                                    <div className="col-6">
+                                        <div className="bg-black p-3 rounded-3 text-center border border-secondary border-opacity-15">
+                                            <span className="text-white-50 small text-uppercase">Round Score</span>
+                                            <div className="mt-1 fs-5 fw-bold">
+                                                <span className="text-info">CT {selectedRoundForModal.ct_score ?? 0}</span>
+                                                <span className="text-white-50 px-2">:</span>
+                                                <span className="text-danger">T {selectedRoundForModal.t_score ?? 0}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="col-6">
+                                        <div className="bg-black p-3 rounded-3 text-center border border-secondary border-opacity-15">
+                                            <span className="text-white-50 small text-uppercase">Player Count</span>
+                                            <div className="mt-1 fs-5 fw-bold text-white">
+                                                {selectedRoundForModal.started_players_num} <span className="text-white-50 fs-6">/ {selectedRoundForModal.max_players_num}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Team Roster Sections */}
+                                <div className="row g-3">
+                                    {/* CT Team */}
+                                    <div className="col-md-6 col-12">
+                                        <div className="bg-black bg-opacity-50 p-3 rounded-3 border border-info border-opacity-25 h-100">
+                                            <div className="d-flex justify-content-between align-items-center mb-2">
+                                                <span className="fw-bold text-info">Human Team (CT)</span>
+                                                <span className="badge bg-info text-dark fw-bold">{modalRoster.ct.length}</span>
+                                            </div>
+                                            {modalRoster.ct.length === 0 ? (
+                                                <div className="text-white-50 small italic py-2">No CT telemetry data.</div>
+                                            ) : (
+                                                <div className="d-flex flex-column gap-2" style={{ maxHeight: '220px', overflowY: 'auto' }}>
+                                                    {modalRoster.ct.map((p, idx) => (
+                                                        <div key={idx} className="bg-dark p-2 rounded-2 border border-secondary border-opacity-10 d-flex justify-content-between align-items-center">
+                                                            <span className="fw-semibold text-light small">{p.name}</span>
+                                                            {p.steamid && <code className="text-white-50" style={{ fontSize: '0.65rem' }}>{p.steamid}</code>}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Zombie Team */}
+                                    <div className="col-md-6 col-12">
+                                        <div className="bg-black bg-opacity-50 p-3 rounded-3 border border-danger border-opacity-25 h-100">
+                                            <div className="d-flex justify-content-between align-items-center mb-2">
+                                                <span className="fw-bold text-danger">Zombie Team (T)</span>
+                                                <span className="badge bg-danger text-white fw-bold">{modalRoster.t.length}</span>
+                                            </div>
+                                            {modalRoster.t.length === 0 ? (
+                                                <div className="text-white-50 small italic py-2">No Zombie telemetry data.</div>
+                                            ) : (
+                                                <div className="d-flex flex-column gap-2" style={{ maxHeight: '220px', overflowY: 'auto' }}>
+                                                    {modalRoster.t.map((p, idx) => (
+                                                        <div key={idx} className="bg-dark p-2 rounded-2 border border-secondary border-opacity-10 d-flex justify-content-between align-items-center">
+                                                            <span className="fw-semibold text-light small">{p.name}</span>
+                                                            {p.steamid && <code className="text-white-50" style={{ fontSize: '0.65rem' }}>{p.steamid}</code>}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Unassigned / Neutral Players */}
+                                    {modalRoster.unassigned.length > 0 && (
+                                        <div className="col-12 mt-2">
+                                            <div className="bg-black bg-opacity-50 p-3 rounded-3 border border-secondary border-opacity-25">
+                                                <div className="d-flex justify-content-between align-items-center mb-2">
+                                                    <span className="fw-bold text-secondary">Unassigned Roster</span>
+                                                    <span className="badge bg-secondary text-light">{modalRoster.unassigned.length}</span>
+                                                </div>
+                                                <div className="d-flex flex-wrap gap-2">
+                                                    {modalRoster.unassigned.map((p, idx) => (
+                                                        <span key={idx} className="badge bg-dark text-light border border-secondary p-2 small">
+                                                            {p.name}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Modal Footer */}
+                            <div className="bg-black p-3 px-4 text-end border-top border-secondary border-opacity-25">
+                                <button
+                                    className="btn btn-sm btn-warning fw-bold text-dark px-4"
+                                    onClick={() => setSelectedRoundForModal(null)}
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
         </div>
     );
 };
