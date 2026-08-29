@@ -60,12 +60,9 @@ interface MapRound {
     max_players_num: number;
     timestamp: string | number;
     session_round_number?: number;
-    ct_score?: number | string;
-    t_score?: number | string;
-    humans_score?: number | string;
-    zombies_score?: number | string;
-    score_ct?: number | string;
-    score_t?: number | string;
+    ct_score?: number;
+    t_score?: number;
+    outcome?: 'human_win' | 'zombie_win' | 'unknown';
     players?: any;
     server_id?: number;
 }
@@ -177,7 +174,7 @@ export const MapStats: React.FC = () => {
 
             const validSessionIds = activeSessions.map(s => Number(s.id));
 
-            // Process Rounds with dynamic running score fallback
+            // Process Rounds & Calculate Scores / Round Outcomes strictly via round_id
             const sessionRoundGroups = new Map<number, MapRound[]>();
             (allRoundsData || []).forEach(r => {
                 const sid = Number(r.session_id);
@@ -191,52 +188,31 @@ export const MapStats: React.FC = () => {
             sessionRoundGroups.forEach((sessionRounds) => {
                 sessionRounds.sort((a, b) => Number(a.id) - Number(b.id));
 
-                let runningCt = 0;
-                let runningT = 0;
+                let runningCtScore = 0;
+                let runningTScore = 0;
 
                 sessionRounds.forEach((r, idx) => {
                     const parentSession = allSessions.find(s => Number(s.id) === Number(r.session_id));
                     const rId = Number(r.id);
-                    const sId = Number(r.session_id);
 
-                    // 1. Direct match by round_id
-                    const winMatch = winsList.find(w => Number(w.round_id) === rId);
-                    const failMatch = failsList.find(f => Number(f.round_id) === rId);
+                    const isHumanWin = winsList.some(w => Number(w.round_id) === rId);
+                    const isZombieWin = failsList.some(f => Number(f.round_id) === rId);
 
-                    let ctScore: number | null = null;
-                    let tScore: number | null = null;
+                    let outcome: 'human_win' | 'zombie_win' | 'unknown' = 'unknown';
 
-                    if (winMatch && winMatch.humans_score != null) {
-                        ctScore = Number(winMatch.humans_score);
-                        tScore = Number(winMatch.zombies_score);
-                    } else if (failMatch && failMatch.humans_score != null) {
-                        ctScore = Number(failMatch.humans_score);
-                        tScore = Number(failMatch.zombies_score);
-                    } else {
-                        // 2. Fallback for entries with null round_id (matched by session & timestamp proximity)
-                        const rTimeSec = Number(r.timestamp);
-                        const unlinkedEvent = [...failsList, ...winsList].find(e => {
-                            if (Number(e.session_id) !== sId || e.humans_score == null) return false;
-                            const eTimeSec = e.timestamp ? Math.floor(new Date(e.timestamp).getTime() / 1000) : 0;
-                            return Math.abs(eTimeSec - rTimeSec) <= 120; // Within 2 minutes of round start
-                        });
-
-                        if (unlinkedEvent) {
-                            ctScore = Number(unlinkedEvent.humans_score);
-                            tScore = Number(unlinkedEvent.zombies_score);
-                        }
-                    }
-
-                    // Maintain score progression tracking
-                    if (ctScore != null && tScore != null) {
-                        runningCt = ctScore;
-                        runningT = tScore;
+                    if (isHumanWin) {
+                        outcome = 'human_win';
+                        runningCtScore += 1;
+                    } else if (isZombieWin) {
+                        outcome = 'zombie_win';
+                        runningTScore += 1;
                     }
 
                     processedAllRounds.push({
                         ...r,
-                        ct_score: ctScore ?? runningCt,
-                        t_score: tScore ?? runningT,
+                        ct_score: runningCtScore,
+                        t_score: runningTScore,
+                        outcome,
                         server_id: parentSession?.raw_server_id,
                         session_round_number: idx + 1
                     });
@@ -303,7 +279,7 @@ export const MapStats: React.FC = () => {
                     topServerName = matchedServer ? matchedServer.server_name : 'Server';
                 }
             } else {
-                const serverStats = (statsData || []).filter(s => allowedRawServerIds.includes(Number(s.server_id)));
+                const serverStats = (statsData || []).filter(s => allowedRawServerIds.map(Number).includes(Number(s.server_id)));
                 if (serverStats.length > 0) {
                     maxScore = Math.max(...serverStats.map(s => Number(s.highest_score || 0)));
                 }
@@ -682,6 +658,7 @@ export const MapStats: React.FC = () => {
                                                     <th className="px-3 py-2">Round Number</th>
                                                     <th className="px-3 py-2">Session</th>
                                                     <th className="px-3 py-2 text-center">Score (CT : T)</th>
+                                                    <th className="px-3 py-2 text-center">Outcome</th>
                                                     <th className="px-3 py-2 text-center">Players (Start / Max)</th>
                                                     <th className="px-3 py-2 text-center">Team</th>
                                                     <th className="px-3 py-2">Timestamp</th>
@@ -691,7 +668,7 @@ export const MapStats: React.FC = () => {
                                             <tbody>
                                                 {rounds.length === 0 ? (
                                                     <tr>
-                                                        <td colSpan={7} className="text-center text-white-50 py-4">No rounds recorded for this scope.</td>
+                                                        <td colSpan={8} className="text-center text-white-50 py-4">No rounds recorded for this scope.</td>
                                                     </tr>
                                                 ) : (
                                                     rounds.map((rnd) => {
@@ -712,6 +689,17 @@ export const MapStats: React.FC = () => {
                                                                     <span className="badge bg-danger bg-opacity-25 text-danger border border-danger border-opacity-25 px-2 py-1 ms-1 fw-bold">
                                                                         T {rnd.t_score ?? 0}
                                                                     </span>
+                                                                </td>
+                                                                <td className="px-3 py-2 text-center">
+                                                                    {rnd.outcome === 'human_win' && (
+                                                                        <span className="badge bg-success text-dark fw-bold px-2 py-1">Human Win</span>
+                                                                    )}
+                                                                    {rnd.outcome === 'zombie_win' && (
+                                                                        <span className="badge bg-danger text-white fw-bold px-2 py-1">Zombie Win</span>
+                                                                    )}
+                                                                    {rnd.outcome === 'unknown' && (
+                                                                        <span className="badge bg-secondary text-white-50 px-2 py-1">Unknown</span>
+                                                                    )}
                                                                 </td>
                                                                 <td className="px-3 py-2 text-center text-white">{rnd.started_players_num} / {rnd.max_players_num}</td>
                                                                 <td className="px-3 py-2 text-center">
