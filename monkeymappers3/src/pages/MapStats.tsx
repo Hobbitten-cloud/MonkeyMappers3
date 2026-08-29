@@ -60,8 +60,12 @@ interface MapRound {
     max_players_num: number;
     timestamp: string | number;
     session_round_number?: number;
-    ct_score?: number;
-    t_score?: number;
+    ct_score?: number | string;
+    t_score?: number | string;
+    humans_score?: number | string;
+    zombies_score?: number | string;
+    score_ct?: number | string;
+    score_t?: number | string;
     players?: any;
     server_id?: number;
 }
@@ -149,8 +153,8 @@ export const MapStats: React.FC = () => {
 
             // 4. Fetch Wins, Fails & Stats
             const [{ data: winsData }, { data: failsData }, { data: statsData }] = await Promise.all([
-                supabase.from('map_wins').select('id, round_id, session_id, players'),
-                supabase.from('map_fails').select('id, round_id, session_id'),
+                supabase.from('map_wins').select('id, round_id, session_id, players, humans_score, zombies_score, timestamp'),
+                supabase.from('map_fails').select('id, round_id, session_id, humans_score, zombies_score, timestamp'),
                 supabase.from('map_stats').select('highest_score, server_id')
             ]);
 
@@ -173,7 +177,7 @@ export const MapStats: React.FC = () => {
 
             const validSessionIds = activeSessions.map(s => Number(s.id));
 
-            // Process Rounds
+            // Process Rounds with dynamic running score fallback
             const sessionRoundGroups = new Map<number, MapRound[]>();
             (allRoundsData || []).forEach(r => {
                 const sid = Number(r.session_id);
@@ -186,10 +190,53 @@ export const MapStats: React.FC = () => {
             const processedAllRounds: MapRound[] = [];
             sessionRoundGroups.forEach((sessionRounds) => {
                 sessionRounds.sort((a, b) => Number(a.id) - Number(b.id));
+
+                let runningCt = 0;
+                let runningT = 0;
+
                 sessionRounds.forEach((r, idx) => {
                     const parentSession = allSessions.find(s => Number(s.id) === Number(r.session_id));
+                    const rId = Number(r.id);
+                    const sId = Number(r.session_id);
+
+                    // 1. Direct match by round_id
+                    const winMatch = winsList.find(w => Number(w.round_id) === rId);
+                    const failMatch = failsList.find(f => Number(f.round_id) === rId);
+
+                    let ctScore: number | null = null;
+                    let tScore: number | null = null;
+
+                    if (winMatch && winMatch.humans_score != null) {
+                        ctScore = Number(winMatch.humans_score);
+                        tScore = Number(winMatch.zombies_score);
+                    } else if (failMatch && failMatch.humans_score != null) {
+                        ctScore = Number(failMatch.humans_score);
+                        tScore = Number(failMatch.zombies_score);
+                    } else {
+                        // 2. Fallback for entries with null round_id (matched by session & timestamp proximity)
+                        const rTimeSec = Number(r.timestamp);
+                        const unlinkedEvent = [...failsList, ...winsList].find(e => {
+                            if (Number(e.session_id) !== sId || e.humans_score == null) return false;
+                            const eTimeSec = e.timestamp ? Math.floor(new Date(e.timestamp).getTime() / 1000) : 0;
+                            return Math.abs(eTimeSec - rTimeSec) <= 120; // Within 2 minutes of round start
+                        });
+
+                        if (unlinkedEvent) {
+                            ctScore = Number(unlinkedEvent.humans_score);
+                            tScore = Number(unlinkedEvent.zombies_score);
+                        }
+                    }
+
+                    // Maintain score progression tracking
+                    if (ctScore != null && tScore != null) {
+                        runningCt = ctScore;
+                        runningT = tScore;
+                    }
+
                     processedAllRounds.push({
                         ...r,
+                        ct_score: ctScore ?? runningCt,
+                        t_score: tScore ?? runningT,
                         server_id: parentSession?.raw_server_id,
                         session_round_number: idx + 1
                     });

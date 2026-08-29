@@ -118,7 +118,7 @@ export const MonkeyHistory: React.FC = () => {
     );
 
     return (
-        <div className="container py-3" style={{ maxWidth: '1000px' }}>
+        <div className="container py-3" style={{ maxWidth: '1200px' }}>
             {/* Page Header */}
             <div className="card bg-black bg-gradient border-0 shadow-lg p-4 rounded-4 mb-4">
                 <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
@@ -164,7 +164,7 @@ export const MonkeyHistory: React.FC = () => {
                                 <span className="badge bg-warning text-dark fs-6 px-3 py-2">22 Mappers Total</span>
                             </div>
 
-                            <div className="card bg-black border-0 shadow-lg p-4 rounded-4">
+                            <div className="card bg-black border-0 shadow-lg p-3 p-md-4 rounded-4">
                                 <div className="d-flex justify-content-between align-items-center mb-3">
                                     <h5 className="text-warning fw-bold mb-0">Core & Systems Crew</h5>
                                     {isAdmin && (
@@ -173,16 +173,16 @@ export const MonkeyHistory: React.FC = () => {
                                         </button>
                                     )}
                                 </div>
-                                <div className="row g-3">
+                                <div className="row g-2">
                                     {mm1Generic.map((item) => (
-                                        <div key={item.id} className="col-md-3 col-sm-6">
-                                            <div className="bg-dark p-3 rounded-3 border border-secondary border-opacity-10 h-100">
-                                                <strong className="text-white d-block">{item.name}</strong>
-                                                <small className="text-warning">{item.role}</small>
+                                        <div key={item.id} className="col-lg-3 col-md-4 col-sm-6">
+                                            <div className="bg-dark p-2 px-3 rounded-3 border border-secondary border-opacity-10 h-100">
+                                                <strong className="text-white d-block small">{item.name}</strong>
+                                                <small className="text-warning" style={{ fontSize: '0.75rem' }}>{item.role}</small>
                                                 {isAdmin && (
-                                                    <div className="mt-2 d-flex gap-1">
-                                                        <button className="btn btn-xs btn-outline-light py-0 px-1 fs-7" onClick={() => startEdit(item)}>Edit</button>
-                                                        <button className="btn btn-xs btn-outline-danger py-0 px-1 fs-7" onClick={() => handleDelete(item.id!)}>Delete</button>
+                                                    <div className="mt-1 d-flex gap-1">
+                                                        <button className="btn btn-xs btn-outline-light py-0 px-1" style={{ fontSize: '0.65rem' }} onClick={() => startEdit(item)}>Edit</button>
+                                                        <button className="btn btn-xs btn-outline-danger py-0 px-1" style={{ fontSize: '0.65rem' }} onClick={() => handleDelete(item.id!)}>Delete</button>
                                                     </div>
                                                 )}
                                             </div>
@@ -191,37 +191,39 @@ export const MonkeyHistory: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="row g-4">
+                            <div className="row g-3">
                                 {mm1StagesList.map((stageName) => {
                                     const stageMappers = contributors.filter(c => c.project_version === 'mm1_stage' && c.stage_name === stageName);
                                     return (
                                         <div key={stageName} className="col-lg-4 col-md-6">
-                                            <div className="card bg-black border-0 shadow-lg p-4 rounded-4 h-100">
-                                                <div className="d-flex justify-content-between align-items-center mb-3">
-                                                    <h5 className="text-warning fw-bold mb-0">{stageName}</h5>
-                                                    <span className="badge bg-secondary">{stageMappers.length} Sections</span>
-                                                </div>
-                                                <div className="d-flex flex-column gap-2 mb-3">
-                                                    {stageMappers.map((m) => (
-                                                        <div
-                                                            key={m.id}
-                                                            className="bg-dark p-2 px-3 rounded-3 border border-secondary border-opacity-10 d-flex justify-content-between align-items-center"
-                                                        >
-                                                            <div>
-                                                                <strong className="text-white small d-block">{m.name}</strong>
-                                                                <span className="badge bg-black text-white-50 fw-normal small">{m.role}</span>
-                                                            </div>
-                                                            {isAdmin && (
-                                                                <div className="d-flex gap-1">
-                                                                    <button className="btn btn-xs btn-outline-light py-0 px-1 fs-7" onClick={() => startEdit(m)}>✏️</button>
-                                                                    <button className="btn btn-xs btn-outline-danger py-0 px-1 fs-7" onClick={() => handleDelete(m.id!)}>🗑️</button>
+                                            <div className="card bg-black border-0 shadow-lg p-3 rounded-4 h-100 d-flex flex-column justify-content-between">
+                                                <div>
+                                                    <div className="d-flex justify-content-between align-items-center mb-2">
+                                                        <h6 className="text-warning fw-bold mb-0">{stageName}</h6>
+                                                        <span className="badge bg-secondary" style={{ fontSize: '0.68rem' }}>{stageMappers.length} Sections</span>
+                                                    </div>
+                                                    <div className="d-flex flex-column gap-1.5 mb-2">
+                                                        {stageMappers.map((m) => (
+                                                            <div
+                                                                key={m.id}
+                                                                className="bg-dark p-2 px-2.5 rounded-3 border border-secondary border-opacity-10 d-flex justify-content-between align-items-center"
+                                                            >
+                                                                <div className="text-truncate me-2">
+                                                                    <strong className="text-white small d-block text-truncate" style={{ fontSize: '0.82rem' }}>{m.name}</strong>
+                                                                    <span className="badge bg-black text-white-50 fw-normal" style={{ fontSize: '0.65rem' }}>{m.role}</span>
                                                                 </div>
-                                                            )}
-                                                        </div>
-                                                    ))}
+                                                                {isAdmin && (
+                                                                    <div className="d-flex gap-1 flex-shrink-0">
+                                                                        <button className="btn btn-xs btn-outline-light py-0 px-1" style={{ fontSize: '0.65rem' }} onClick={() => startEdit(m)}>✏️</button>
+                                                                        <button className="btn btn-xs btn-outline-danger py-0 px-1" style={{ fontSize: '0.65rem' }} onClick={() => handleDelete(m.id!)}>🗑️</button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
                                                 </div>
                                                 {isAdmin && (
-                                                    <button className="btn btn-outline-warning btn-sm w-100 mt-auto" onClick={() => startAdd('mm1_stage', stageName)}>
+                                                    <button className="btn btn-outline-warning btn-sm w-100 mt-2 py-1 small" onClick={() => startAdd('mm1_stage', stageName)}>
                                                         + Add to {stageName}
                                                     </button>
                                                 )}
@@ -235,7 +237,7 @@ export const MonkeyHistory: React.FC = () => {
 
                     {/* MONKEY MAPPERS 2 CONTENT */}
                     {activeTab === 'mm2' && (
-                        <div className="d-flex flex-column gap-4">
+                        <div className="d-flex flex-column gap-3">
                             <div className="bg-dark p-3 rounded-3 border border-warning border-opacity-25 d-flex align-items-center justify-content-between flex-wrap gap-2">
                                 <div>
                                     <span className="text-warning fw-bold d-block">Monkey Mappers 2 Layout Breakdown</span>
@@ -245,25 +247,25 @@ export const MonkeyHistory: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="card bg-black border-0 shadow-lg p-4 rounded-4">
-                                <div className="d-flex justify-content-between align-items-center mb-3">
-                                    <h5 className="text-warning fw-bold mb-0">Core Infrastructure</h5>
+                            <div className="card bg-black border-0 shadow-lg p-3 p-md-4 rounded-4">
+                                <div className="d-flex justify-content-between align-items-center mb-2">
+                                    <h6 className="text-warning fw-bold mb-0">Core Infrastructure</h6>
                                     {isAdmin && (
-                                        <button className="btn btn-outline-warning btn-sm" onClick={() => startAdd('mm2_core')}>
+                                        <button className="btn btn-outline-warning btn-sm py-0 px-2" style={{ fontSize: '0.75rem' }} onClick={() => startAdd('mm2_core')}>
                                             + Add Lead
                                         </button>
                                     )}
                                 </div>
-                                <div className="row g-3">
+                                <div className="row g-2">
                                     {mm2General.map((item) => (
-                                        <div key={item.id} className="col-md-3 col-sm-6">
-                                            <div className="bg-dark p-3 rounded-3 border border-secondary border-opacity-10 h-100">
-                                                <strong className="text-white d-block">{item.name}</strong>
-                                                <small className="text-warning">{item.role}</small>
+                                        <div key={item.id} className="col-lg-3 col-md-4 col-sm-6">
+                                            <div className="bg-dark p-2 px-3 rounded-3 border border-secondary border-opacity-10 h-100">
+                                                <strong className="text-white d-block small">{item.name}</strong>
+                                                <small className="text-warning" style={{ fontSize: '0.72rem' }}>{item.role}</small>
                                                 {isAdmin && (
-                                                    <div className="mt-2 d-flex gap-1">
-                                                        <button className="btn btn-xs btn-outline-light py-0 px-1 fs-7" onClick={() => startEdit(item)}>Edit</button>
-                                                        <button className="btn btn-xs btn-outline-danger py-0 px-1 fs-7" onClick={() => handleDelete(item.id!)}>Delete</button>
+                                                    <div className="mt-1 d-flex gap-1">
+                                                        <button className="btn btn-xs btn-outline-light py-0 px-1" style={{ fontSize: '0.65rem' }} onClick={() => startEdit(item)}>Edit</button>
+                                                        <button className="btn btn-xs btn-outline-danger py-0 px-1" style={{ fontSize: '0.65rem' }} onClick={() => handleDelete(item.id!)}>Delete</button>
                                                     </div>
                                                 )}
                                             </div>
@@ -273,10 +275,10 @@ export const MonkeyHistory: React.FC = () => {
                             </div>
 
                             {/* MM2 Stage Layout Header */}
-                            <div className="d-flex justify-content-between align-items-center">
-                                <h5 className="text-warning fw-bold mb-0">Stage Breakdown & Layout</h5>
+                            <div className="d-flex justify-content-between align-items-center mt-2">
+                                <h6 className="text-warning fw-bold mb-0">Stage Breakdown & Layout</h6>
                                 {isAdmin && (
-                                    <button className="btn btn-outline-warning btn-sm" onClick={() => startAdd('mm2_stage', 'Stage 1')}>
+                                    <button className="btn btn-outline-warning btn-sm py-0 px-2" style={{ fontSize: '0.75rem' }} onClick={() => startAdd('mm2_stage', 'Stage 1')}>
                                         + Add Stage Mapper
                                     </button>
                                 )}
@@ -288,16 +290,16 @@ export const MonkeyHistory: React.FC = () => {
                                 return (
                                     <div key={stageName} className="card bg-black border border-warning border-opacity-25 shadow-lg p-3 rounded-4">
                                         <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                                            <div className="d-flex align-items-center flex-wrap gap-3">
-                                                <span className="badge bg-warning text-dark fw-bold fs-6 px-3 py-2">Prologue</span>
+                                            <div className="d-flex align-items-center flex-wrap gap-2">
+                                                <span className="badge bg-warning text-dark fw-bold px-2.5 py-1.5" style={{ fontSize: '0.78rem' }}>Prologue</span>
                                                 {stageMappers.map((m) => (
-                                                    <div key={m.id} className="bg-dark px-3 py-2 rounded-3 border border-secondary border-opacity-10 d-flex align-items-center gap-2">
+                                                    <div key={m.id} className="bg-dark px-2.5 py-1 rounded-3 border border-secondary border-opacity-10 d-flex align-items-center gap-2">
                                                         <strong className="text-white small">{m.name}</strong>
-                                                        <span className="badge bg-black text-warning fw-normal small">{m.role}</span>
+                                                        <span className="badge bg-black text-warning fw-normal" style={{ fontSize: '0.65rem' }}>{m.role}</span>
                                                         {isAdmin && (
-                                                            <div className="d-flex gap-1 ms-2">
-                                                                <button className="btn btn-xs btn-outline-light py-0 px-1 fs-7" onClick={() => startEdit(m)}>✏️</button>
-                                                                <button className="btn btn-xs btn-outline-danger py-0 px-1 fs-7" onClick={() => handleDelete(m.id!)}>🗑️</button>
+                                                            <div className="d-flex gap-1 ms-1">
+                                                                <button className="btn btn-xs btn-outline-light py-0 px-1" style={{ fontSize: '0.65rem' }} onClick={() => startEdit(m)}>✏️</button>
+                                                                <button className="btn btn-xs btn-outline-danger py-0 px-1" style={{ fontSize: '0.65rem' }} onClick={() => handleDelete(m.id!)}>🗑️</button>
                                                             </div>
                                                         )}
                                                     </div>
@@ -308,44 +310,46 @@ export const MonkeyHistory: React.FC = () => {
                                                     </button>
                                                 )}
                                             </div>
-                                            <span className="badge bg-secondary">{stageMappers.length} Contributor{stageMappers.length !== 1 ? 's' : ''}</span>
+                                            <span className="badge bg-secondary" style={{ fontSize: '0.7rem' }}>{stageMappers.length} Contributor{stageMappers.length !== 1 ? 's' : ''}</span>
                                         </div>
                                     </div>
                                 );
                             })}
 
-                            {/* Standard Grid for Stages (Stage 1, Stage 2, etc.) */}
-                            <div className="row g-4">
+                            {/* Compact 3-Column Grid for Stages (Stage 1, Stage 2, Stage 3, etc.) */}
+                            <div className="row g-3">
                                 {mm2StagesList.filter(s => !s.toLowerCase().includes('prologue')).map((stageName) => {
                                     const stageMappers = contributors.filter(c => c.project_version === 'mm2_stage' && c.stage_name === stageName);
                                     return (
-                                        <div key={stageName} className="col-lg-6">
-                                            <div className="card bg-black border-0 shadow-lg p-4 rounded-4 h-100">
-                                                <div className="d-flex justify-content-between align-items-center mb-3">
-                                                    <h5 className="text-warning fw-bold mb-0">{stageName}</h5>
-                                                    <span className="badge bg-secondary">{stageMappers.length} Contributors</span>
-                                                </div>
-                                                <div className="d-flex flex-column gap-2 mb-3">
-                                                    {stageMappers.map((m) => (
-                                                        <div
-                                                            key={m.id}
-                                                            className="bg-dark p-2 px-3 rounded-3 border border-secondary border-opacity-10 d-flex justify-content-between align-items-center"
-                                                        >
-                                                            <div>
-                                                                <strong className="text-white small d-block">{m.name}</strong>
-                                                                <span className="badge bg-black text-white-50 fw-normal small">{m.role}</span>
-                                                            </div>
-                                                            {isAdmin && (
-                                                                <div className="d-flex gap-1">
-                                                                    <button className="btn btn-xs btn-outline-light py-0 px-1 fs-7" onClick={() => startEdit(m)}>✏️</button>
-                                                                    <button className="btn btn-xs btn-outline-danger py-0 px-1 fs-7" onClick={() => handleDelete(m.id!)}>🗑️</button>
+                                        <div key={stageName} className="col-lg-4 col-md-6">
+                                            <div className="card bg-black border-0 shadow-lg p-3 rounded-4 h-100 d-flex flex-column justify-content-between">
+                                                <div>
+                                                    <div className="d-flex justify-content-between align-items-center mb-2">
+                                                        <h6 className="text-warning fw-bold mb-0">{stageName}</h6>
+                                                        <span className="badge bg-secondary" style={{ fontSize: '0.68rem' }}>{stageMappers.length} Contributors</span>
+                                                    </div>
+                                                    <div className="d-flex flex-column gap-1.5 mb-2">
+                                                        {stageMappers.map((m) => (
+                                                            <div
+                                                                key={m.id}
+                                                                className="bg-dark p-2 px-2.5 rounded-3 border border-secondary border-opacity-10 d-flex justify-content-between align-items-center"
+                                                            >
+                                                                <div className="text-truncate me-2">
+                                                                    <strong className="text-white small d-block text-truncate" style={{ fontSize: '0.82rem' }}>{m.name}</strong>
+                                                                    <span className="badge bg-black text-white-50 fw-normal" style={{ fontSize: '0.65rem' }}>{m.role}</span>
                                                                 </div>
-                                                            )}
-                                                        </div>
-                                                    ))}
+                                                                {isAdmin && (
+                                                                    <div className="d-flex gap-1 flex-shrink-0">
+                                                                        <button className="btn btn-xs btn-outline-light py-0 px-1" style={{ fontSize: '0.65rem' }} onClick={() => startEdit(m)}>✏️</button>
+                                                                        <button className="btn btn-xs btn-outline-danger py-0 px-1" style={{ fontSize: '0.65rem' }} onClick={() => handleDelete(m.id!)}>🗑️</button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
                                                 </div>
                                                 {isAdmin && (
-                                                    <button className="btn btn-outline-warning btn-sm w-100 mt-auto" onClick={() => startAdd('mm2_stage', stageName)}>
+                                                    <button className="btn btn-outline-warning btn-sm w-100 mt-2 py-1 small" onClick={() => startAdd('mm2_stage', stageName)}>
                                                         + Add to {stageName}
                                                     </button>
                                                 )}
@@ -357,27 +361,27 @@ export const MonkeyHistory: React.FC = () => {
 
                             {/* Additional MM2 Roster */}
                             {mm2Participants.length > 0 && (
-                                <div className="card bg-black border-0 shadow-lg p-4 rounded-4">
-                                    <div className="d-flex justify-content-between align-items-center mb-3">
-                                        <h5 className="text-warning fw-bold mb-0">Other Roster Contributors</h5>
+                                <div className="card bg-black border-0 shadow-lg p-3 p-md-4 rounded-4 mt-2">
+                                    <div className="d-flex justify-content-between align-items-center mb-2">
+                                        <h6 className="text-warning fw-bold mb-0">Other Roster Contributors</h6>
                                         {isAdmin && (
-                                            <button className="btn btn-outline-warning btn-sm" onClick={() => startAdd('mm2_participant')}>
+                                            <button className="btn btn-outline-warning btn-sm py-0 px-2" style={{ fontSize: '0.75rem' }} onClick={() => startAdd('mm2_participant')}>
                                                 + Add Participant
                                             </button>
                                         )}
                                     </div>
-                                    <div className="row g-3">
+                                    <div className="row g-2">
                                         {mm2Participants.map((p) => (
-                                            <div key={p.id} className="col-md-4 col-sm-6">
-                                                <div className="bg-dark p-3 rounded-3 border border-secondary border-opacity-10 d-flex justify-content-between align-items-center">
+                                            <div key={p.id} className="col-lg-3 col-md-4 col-sm-6">
+                                                <div className="bg-dark p-2 px-3 rounded-3 border border-secondary border-opacity-10 d-flex justify-content-between align-items-center">
                                                     <div>
-                                                        <strong className="text-white d-block">{p.name}</strong>
-                                                        <small className="text-warning">{p.role}</small>
+                                                        <strong className="text-white d-block small">{p.name}</strong>
+                                                        <small className="text-warning" style={{ fontSize: '0.72rem' }}>{p.role}</small>
                                                     </div>
                                                     {isAdmin && (
                                                         <div className="d-flex gap-1">
-                                                            <button className="btn btn-xs btn-outline-light py-0 px-1 fs-7" onClick={() => startEdit(p)}>✏️</button>
-                                                            <button className="btn btn-xs btn-outline-danger py-0 px-1 fs-7" onClick={() => handleDelete(p.id!)}>🗑️</button>
+                                                            <button className="btn btn-xs btn-outline-light py-0 px-1" style={{ fontSize: '0.65rem' }} onClick={() => startEdit(p)}>✏️</button>
+                                                            <button className="btn btn-xs btn-outline-danger py-0 px-1" style={{ fontSize: '0.65rem' }} onClick={() => handleDelete(p.id!)}>🗑️</button>
                                                         </div>
                                                     )}
                                                 </div>
