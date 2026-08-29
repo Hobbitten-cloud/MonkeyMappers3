@@ -174,7 +174,7 @@ export const MapStats: React.FC = () => {
 
             const validSessionIds = activeSessions.map(s => Number(s.id));
 
-            // Process Rounds & Calculate Scores / Round Outcomes strictly via round_id
+            // Process Rounds & Outcomes by round_id
             const sessionRoundGroups = new Map<number, MapRound[]>();
             (allRoundsData || []).forEach(r => {
                 const sid = Number(r.session_id);
@@ -328,13 +328,46 @@ export const MapStats: React.FC = () => {
                 setRecentStageWins(Array.from(fastestStagesMap.values()));
             }
 
-            // 6. Top Players
+            // 6. Top Players (Grouped & Aggregated by Unique SteamID)
             let filteredPlayers = allPlayersData || [];
             if (selectedServerId !== 'all' && allowedRawServerIds.length > 0) {
                 filteredPlayers = filteredPlayers.filter(p => allowedRawServerIds.includes(Number(p.server_id)));
             }
 
-            const sortedPlayers = (filteredPlayers as Player[]).sort((a, b) => {
+            const aggregatedMap = new Map<string, Player>();
+
+            filteredPlayers.forEach(p => {
+                const key = p.steamid ? p.steamid : `id_${p.id}`;
+
+                if (!aggregatedMap.has(key)) {
+                    aggregatedMap.set(key, {
+                        id: p.id,
+                        server_id: p.server_id,
+                        name: p.name,
+                        steamid: p.steamid,
+                        stats: {
+                            wins: Number(p.stats?.wins || 0),
+                            failures: Number(p.stats?.failures || 0),
+                            deaths: Number(p.stats?.deaths || 0),
+                            attempts: Number(p.stats?.attempts || 0),
+                            playtime: Number(p.stats?.playtime || 0)
+                        }
+                    });
+                } else {
+                    const existing = aggregatedMap.get(key)!;
+                    if ((!existing.name || existing.name.startsWith('Player #')) && p.name) {
+                        existing.name = p.name;
+                    }
+
+                    existing.stats.wins = (existing.stats.wins || 0) + Number(p.stats?.wins || 0);
+                    existing.stats.failures = (existing.stats.failures || 0) + Number(p.stats?.failures || 0);
+                    existing.stats.deaths = (existing.stats.deaths || 0) + Number(p.stats?.deaths || 0);
+                    existing.stats.attempts = (existing.stats.attempts || 0) + Number(p.stats?.attempts || 0);
+                    existing.stats.playtime = (existing.stats.playtime || 0) + Number(p.stats?.playtime || 0);
+                }
+            });
+
+            const sortedPlayers = Array.from(aggregatedMap.values()).sort((a, b) => {
                 const winsA = Number(a.stats?.wins || 0);
                 const winsB = Number(b.stats?.wins || 0);
                 if (winsB !== winsA) return winsB - winsA;
